@@ -28,7 +28,7 @@ Linux-based development environment (WSL Ubuntu)
 Professional Git branching workflow
 
 
-#🎯 Purpose
+**🎯 Purpose**
 
 
 This repository exists as a technical portfolio project to demonstrate:
@@ -60,7 +60,9 @@ ahs-poc/
 │
 └── services/               # (Phase 1+) Simulation + API layer
 
-🖥 Technology Stack
+
+**🖥 Technology Stack**
+
 Frontend
 
 Angular 21 (Standalone Components)
@@ -99,7 +101,9 @@ GitHub Actions
 
 Automated build + test pipeline
 
-🚀 Features (Phase 0)
+
+**🚀 Features (Phase 0)**
+
 
 Dashboard overview (fleet KPIs)
 
