@@ -28,7 +28,7 @@ Linux-based development environment (WSL Ubuntu)
 Professional Git branching workflow
 
 
-**🎯 Purpose**
+#🎯 Purpose
 
 
 This repository exists as a technical portfolio project to demonstrate:
