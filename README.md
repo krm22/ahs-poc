@@ -1,245 +1,395 @@
 # AHS-POC
 
-Autonomous Haulage System (AHS) – Proof of Concept
-Overview
+🚜 Autonomous Haulage System (AHS) – Proof of Concept
+📌 Project Overview
 
-This project is a full-stack Proof-of-Concept (POC) Autonomous Haulage System inspired by industrial fleet autonomy platforms such as:
+This project is a Proof of Concept Autonomous Haulage System (AHS) inspired by:
 
-Komatsu Autonomous Haulage System (AHS)
+Komatsu Autonomous Haulage System
 
-Caterpillar Inc. MineStar Command for hauling
+Caterpillar Inc. MineStar™ Command
 
-The goal of this repository is to demonstrate the architectural, software engineering, and systems integration principles required to design, build, deploy, and maintain an autonomous fleet control system.
+The objective is to mimic real-world mining fleet autonomy systems in both:
 
-This project focuses on:
+Functionality
 
-Fleet telemetry visualization
+Architecture
 
-Operator command interface
+Technology stack
 
-Dispatch simulation
+Deployment workflow
 
-Vehicle state management
+UI/UX design philosophy
 
-CI/CD workflow integration
+This POC demonstrates knowledge in:
 
-Linux-based development environment (WSL Ubuntu)
+Fleet autonomy simulation
 
-Professional Git branching workflow
+Real-time telemetry systems
 
+Map-based vehicle tracking
 
-**🎯 Purpose**
+Backend command orchestration
 
+Angular enterprise architecture
 
-This repository exists as a technical portfolio project to demonstrate:
+.NET microservice backend
 
-Distributed system architecture design
+DevOps via WSL + GitHub SSH
 
-Real-time telemetry processing
+🏗 System Architecture
+🖥 Frontend (Operator Control System)
 
-Operator UI development
+Framework: Angular v21
+Architecture Style: Standalone Components
+Rendering Model: Modern bootstrapApplication (no NgModules)
+Mapping Engine: MapLibre GL JS
 
-DevOps & CI pipeline configuration
+Architectural Decisions
 
-Linux-based development practices
+Standalone components (no AppModule)
 
-GitHub-based collaborative workflow
+Separate .ts, .html, .css files
 
-**🏗 Architecture (Phase 0)**
+Feature-based folder structure
 
-ahs-poc/
+Service isolation per domain
+
+Dependency Injection via providedIn: 'root'
+
+Reactive state using RxJS
+
+Application Structure
+src/app/
 │
-├── ui/                     # Angular 21 Standalone frontend
-│   ├── features/
-│   ├── layout/
-│   └── core/services/
+├── layout/
+│   └── shell/
 │
-├── .github/
-│   └── workflows/
-│       └── ci.yml          # GitHub Actions CI pipeline
+├── features/
+│   ├── dashboard/
+│   ├── fleet/
+│   └── map/
 │
-└── services/               # (Phase 1+) Simulation + API layer
+├── services/
+│   ├── fleet.service.ts
+│   ├── simulation.service.ts
+│   ├── telemetry.service.ts
+│   └── command.service.ts
+│
+└── models/
 
+🚛 Hybrid Fleet Simulation (Current State)
 
-**🖥 Technology Stack**
+The system simulates 10 autonomous haul trucks using a Hybrid model:
 
-Frontend
+🟢 What “Hybrid” Means in This POC
 
-Angular 21 (Standalone Components)
+Backend authoritative control
 
-TypeScript
+Frontend interpolation for smooth motion
 
-CSS (separate files per component)
+Simulated GPS + telemetry stream
 
-Angular Router
+Realistic haul cycles (Load → Haul → Dump → Return)
 
-Dependency Injection (service-based architecture)
+🔟 Fleet Simulation Details
 
-Backend (Planned – Phase 1+)
+Each truck contains:
 
-Node.js
+ID
 
-REST API
+Position (lat/lng)
 
-WebSocket telemetry streaming
+Speed
 
-Fleet simulation engine
+Heading
 
-Dev Environment
+Load state
 
-Windows 11 Pro
+Health state
 
-WSL2 (Ubuntu Linux)
+Autonomous mode status
 
-Node 24 LTS
+Route path
 
-Git (SSH configured)
+Trucks are simulated with:
 
-CI/CD
+Randomized start positions
 
-GitHub Actions
+Path interpolation
 
-Automated build + test pipeline
+Status transitions
 
+Time-based event updates
 
-**🚀 Features (Phase 0)**
+🗺 Map System
+🌍 Map Engine
 
+Powered by:
 
-Dashboard overview (fleet KPIs)
+MapLibre GL JS
 
-Fleet table view
+Why MapLibre?
 
-Telemetry panel (mock data)
+Open-source alternative to Mapbox
 
-Command interface (mock dispatch + stop)
+Industrial mapping flexibility
 
-Angular standalone architecture
+Supports vector tiles
 
-CI pipeline for build + test
+Real-time marker updates
 
-**🔜 Planned Phases**
+WebGL rendering performance
 
+📍 Map Capabilities (Current)
 
-**Phase 1**
+10 live moving trucks
 
+Real-time position updates
 
-Real simulation engine
+Smooth animation
 
-WebSocket live telemetry
+Route polylines
 
-Dispatch state machine
+Fleet zoom and pan
 
-Vehicle route simulation
+Click-to-select vehicle
 
+Telemetry popup display
 
-**Phase 2**
+📡 Backend (.NET Core)
+⚙️ Framework
 
+ASP.NET Core Web API
 
-Map integration
+REST + WebSocket ready
 
-Geofencing
+Service-based architecture
 
-Command validation logic
+🔁 Backend Responsibilities
 
+Fleet state authority
 
-**Phase 3**
+Simulation engine (optional)
 
+Telemetry broadcast
 
-Multi-vehicle scaling
+Command processing
 
-Fleet optimization logic
+Event logging
 
-Event logging & replay
+🧠 Backend Services
 
-**📦 Running Locally**
+FleetStateService
 
-cd ahs-poc
-npm install
-npm start
+SimulationEngineService
 
+CommandDispatcher
 
-Open:
+TelemetryHub (SignalR-ready)
 
-http://localhost:4200
+📊 Dashboard System
 
-🔐 Development Workflow
+The dashboard represents a mine operations control room interface.
 
-WSL Ubuntu used as primary dev environment
+Current Components
 
-SSH-based GitHub authentication
+Fleet Status Summary
 
-Branch-per-feature strategy
+Active vs Idle Trucks
 
-CI triggered on push to main
+Haul Cycle State Distribution
 
-📘 Educational Focus
+System Health Overview
 
-This project demonstrates practical understanding of:
+Autonomous vs Manual Count
 
-Real-time control system UI architecture
+Future upgrades:
 
-Autonomous fleet state modelling
+Production metrics
 
-DevOps best practices
+Tonnage moved
 
-GitHub CI workflows
+Utilization %
 
-Cross-platform Linux development
+Heatmaps
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.1.4.
+🛰 Real-Time Communication Layer
 
-## Development server
+Current Mode:
 
-To start a local development server, run:
+Simulated internal service streaming
 
-```bash
-ng serve
-```
+Planned:
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+SignalR WebSocket streaming
 
-## Code scaffolding
+Event-driven backend updates
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Command acknowledgment system
 
-```bash
-ng generate component component-name
-```
+🧩 Angular Architecture Details
+🏗 Bootstrapping Style
+bootstrapApplication(AppComponent, appConfig)
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
 
-```bash
-ng generate --help
-```
+No NgModule used.
 
-## Building
+🧠 Dependency Injection
 
-To build the project run:
+All services use:
 
-```bash
-ng build
-```
+@Injectable({
+  providedIn: 'root'
+})
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
 
-## Running unit tests
+Ensures:
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+Singleton instances
 
-```bash
-ng test
-```
+Clean dependency graph
 
-## Running end-to-end tests
+Easy testing
 
-For end-to-end (e2e) testing, run:
+📁 Component Pattern
 
-```bash
-ng e2e
-```
+Each component contains:
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+component.ts
+component.html
+component.css
 
-## Additional Resources
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Example:
+
+map.component.ts
+map.component.html
+map.component.css
+
+🧪 Simulation Modes
+Mode	Description
+Frontend Only	Simulated in Angular
+Backend Driven	Server authoritative
+Hybrid (Current)	Mixed model
+🔐 Dev Workflow
+🖥 Development Environment
+
+Windows 11
+
+WSL2 (Ubuntu)
+
+Node LTS
+
+.NET 8 SDK
+
+🔑 GitHub via SSH (WSL)
+
+Workflow:
+
+ssh-keygen -t ed25519
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+
+
+Add public key to GitHub.
+
+Clone via:
+
+git clone git@github.com:username/ahs-poc.git
+
+📦 Project Phases
+✅ Phase 0 – Architecture Setup
+
+Angular v21 standalone
+
+Shell layout
+
+Routing configured
+
+✅ Phase 1 – Fleet Simulation
+
+10 trucks
+
+Hybrid simulation
+
+Route logic
+
+✅ Phase 2 – Map Integration
+
+MapLibre integrated
+
+Live truck markers
+
+Animated movement
+
+🔜 Phase 3 – Backend Authority
+
+Move simulation to .NET
+
+WebSocket telemetry
+
+🔜 Phase 4 – Command & Control
+
+Dispatch commands
+
+Route reassignment
+
+Manual override mode
+
+🔜 Phase 5 – Production Metrics
+
+Tonnage tracking
+
+Efficiency analysis
+
+Event logging
+
+🎯 Project Goals
+
+This POC demonstrates:
+
+Enterprise Angular architecture
+
+Real-time vehicle systems
+
+Mining fleet simulation logic
+
+Map-based telemetry visualization
+
+Backend authoritative control design
+
+Clean GitOps workflow
+
+Industrial system replication capability
+
+📈 Future Expansion
+
+Collision avoidance logic
+
+Traffic management AI
+
+Geofencing zones
+
+Obstacle detection simulation
+
+Operator override console
+
+Authentication & role-based access
+
+Docker deployment
+
+Kubernetes orchestration
+
+🏁 Current Status Summary
+System	Status
+Angular Architecture	✅ Complete
+MapLibre Integration	✅ Working
+10 Truck Simulation	✅ Working
+Hybrid Mode	✅ Active
+.NET Backend	⚙️ Partial
+WebSocket Streaming	🔜 Planned
+Command Center	🔜 Planned
+👨‍💻 Author
+
+Karl Mouat
