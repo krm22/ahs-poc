@@ -9,7 +9,7 @@ import { CommandComponent } from '../command/command.component';
   standalone: true,
   imports: [CommonModule, TelemetryComponent, CommandComponent],
   templateUrl: './dashboard.component.html',
-  styleUrls: ['./dashboard.component.css'], // ✅ fixed
+  styleUrls: ['./dashboard.component.css'],
 })
 export class DashboardComponent implements OnInit {
   private readonly fleet = inject(FleetStateService);
