@@ -1,4 +1,4 @@
-<h2 class="h">Fleet</h2>
+<h2 class="h">Fleet (10 Simulated Trucks)</h2>
 
 <div class="card">
   <table class="t">
@@ -6,23 +6,35 @@
       <tr>
         <th>ID</th>
         <th>Name</th>
-        <th>State</th>
+        <th>Status</th>
         <th>Speed (m/s)</th>
         <th>Payload (t)</th>
         <th>Fuel (%)</th>
         <th>Updated</th>
+        <th>Actions</th>
       </tr>
     </thead>
 
     <tbody>
-      <tr *ngFor="let v of vehicles">
+      <tr *ngFor="let v of vehicles()">
         <td class="mono">{{ v.id }}</td>
         <td>{{ v.name }}</td>
-        <td><span class="pill">{{ v.state }}</span></td>
+
+        <td>
+          <span class="pill">{{ v.state }}</span>
+        </td>
+
         <td>{{ v.speedMps }}</td>
         <td>{{ v.payloadT }}</td>
         <td>{{ v.fuelPct }}</td>
-        <td class="muted">{{ v.updatedAtIso | date:'medium' }}</td>
+        <td class="muted">{{ v.updatedAtIso | date:'mediumTime' }}</td>
+
+        <td>
+          <button (click)="pause(v.id)">Pause</button>
+          <button (click)="resume(v.id)">Resume</button>
+          <button (click)="fault(v.id)">Fault</button>
+          <button (click)="clearFault(v.id)">Clear</button>
+        </td>
       </tr>
     </tbody>
   </table>

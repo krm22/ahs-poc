@@ -1,23 +1,36 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, inject, computed } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FleetStateService, FleetVehicle } from '../../core/services/fleet-state.service';
 import { TelemetryComponent } from '../telemetry/telemetry.component';
 import { CommandComponent } from '../command/command.component';
-import { MockFleetService } from '../../core/services/mock-fleet.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [TelemetryComponent, CommandComponent],
+  imports: [CommonModule, TelemetryComponent, CommandComponent],
   templateUrl: './dashboard.component.html',
-  styleUrl: './dashboard.component.css',
+  styleUrls: ['./dashboard.component.css'], // ✅ fixed
 })
-export class DashboardComponent {
-  constructor(private fleet: MockFleetService) {}
+export class DashboardComponent implements OnInit {
+  private readonly fleet = inject(FleetStateService);
 
-  get totals() {
-    const vehicles = this.fleet.list();
-    const active = vehicles.filter(v => v.state !== 'IDLE').length;
-    const hauling = vehicles.filter(v => v.state === 'HAULING').length;
-    const stopped = vehicles.filter(v => v.state === 'STOPPED').length;
-    return { total: vehicles.length, active, hauling, stopped };
+  readonly kpis = this.fleet.kpis;
+
+  // Derived metrics used by template
+  readonly totals = computed(() => {
+    const vehicles: FleetVehicle[] = this.fleet.vehicles();
+
+    return {
+      total: vehicles.length,
+      active: vehicles.filter((v: FleetVehicle) => v.status !== 'IDLE').length,
+      hauling: vehicles.filter((v: FleetVehicle) => v.status === 'HAULING').length,
+      stopped: vehicles.filter(
+        (v: FleetVehicle) => v.status === 'PAUSED' || v.status === 'FAULT'
+      ).length,
+    };
+  });
+
+  ngOnInit(): void {
+    this.fleet.startSimulation();
   }
 }

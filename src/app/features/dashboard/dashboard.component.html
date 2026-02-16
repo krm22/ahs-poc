@@ -2,36 +2,36 @@
   <div class="card">
     <div class="kpi">
       <div class="label">Fleet Size</div>
-      <div class="value">{{ totals.total }}</div>
+      <div class="value">{{ totals().total }}</div>
     </div>
   </div>
 
   <div class="card">
     <div class="kpi">
       <div class="label">Active</div>
-      <div class="value">{{ totals.active }}</div>
+      <div class="value">{{ totals().active }}</div>
     </div>
   </div>
 
   <div class="card">
     <div class="kpi">
       <div class="label">Hauling</div>
-      <div class="value">{{ totals.hauling }}</div>
+      <div class="value">{{ totals().hauling }}</div>
     </div>
   </div>
 
   <div class="card">
     <div class="kpi">
-      <div class="label">Stopped</div>
-      <div class="value">{{ totals.stopped }}</div>
+      <div class="label">Stopped (Paused/Fault)</div>
+      <div class="value">{{ totals().stopped }}</div>
     </div>
   </div>
 
   <div class="card span2">
-    <app-telemetry />
+    <app-telemetry></app-telemetry>
   </div>
 
   <div class="card span2">
-    <app-command />
+    <app-command></app-command>
   </div>
 </section>

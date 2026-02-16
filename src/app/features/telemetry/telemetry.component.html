@@ -1,13 +1,25 @@
-<div class="head">
-  <div>
-    <div class="title">Live Telemetry</div>
-    <div class="sub">Mock snapshot (Phase 0)</div>
-  </div>
-</div>
+<!-- src/app/features/telemetry/telemetry.component.html -->
+<section class="telemetry">
+  <header class="toolbar">
+    <label>
+      Vehicle
+      <select (change)="onVehicleChange($event)">
+        <option *ngFor="let id of vehicleIds()" [value]="id" [selected]="id === selectedVehicleId()">
+          {{ id }}
+        </option>
+      </select>
+    </label>
 
-<div class="list">
-  <div class="row" *ngFor="let v of vehicles">
-    <div class="id">{{ v.id }}</div>
-    <div class="meta">{{ v.state }} • {{ v.speedMps }} m/s • {{ v.fuelPct }}%</div>
-  </div>
-</div>
+    <label class="toggle">
+      <input type="checkbox" [checked]="showTelemetry()" (change)="onShowTelemetryChange($event)" />
+      Show telemetry
+    </label>
+
+    <label class="toggle">
+      <input type="checkbox" [checked]="showEvents()" (change)="onShowEventsChange($event)" />
+      Show events
+    </label>
+  </header>
+
+  <!-- your existing UI below -->
+</section>

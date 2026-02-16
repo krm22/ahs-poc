@@ -1,10 +1,55 @@
-<h2 class="h">Map</h2>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="h">Live Map (MapLibre GL)</div>
+      <div class="sub">Real vector map • trucks are live markers from fleet telemetry</div>
+    </div>
 
-<div class="card">
-  <div class="box">
-    <div class="title">Phase 0 placeholder</div>
-    <div class="muted">
-      Phase 1 will add a real map layer + vehicle markers + geofences.
+    <div class="legend">
+      <span class="lg idle">IDLE</span>
+      <span class="lg hauling">HAULING</span>
+      <span class="lg returning">RETURNING</span>
+      <span class="lg paused">PAUSED</span>
+      <span class="lg fault">FAULT</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="map card">
+      <div #map class="map-host"></div>
+    </div>
+
+    <div class="side">
+      <div class="panel">
+        <div class="ph">Selection</div>
+
+        <div *ngIf="!selectedVehicle()" class="muted">
+          Click a truck marker to inspect details.
+        </div>
+
+        <div *ngIf="selectedVehicle() as v" class="details">
+          <div class="row"><div class="k">ID</div><div class="v mono">{{ v.id }}</div></div>
+          <div class="row"><div class="k">Status</div><div class="v"><span class="pill">{{ v.status }}</span></div></div>
+          <div class="row"><div class="k">Speed</div><div class="v mono">{{ v.speedKph.toFixed(1) }} kph</div></div>
+          <div class="row"><div class="k">Heading</div><div class="v mono">{{ v.headingDeg }}°</div></div>
+          <div class="row"><div class="k">Payload</div><div class="v mono">{{ v.payloadTons.toFixed(1) }} t</div></div>
+          <div class="row"><div class="k">Fuel</div><div class="v mono">{{ v.fuelPct.toFixed(1) }}%</div></div>
+          <div class="row"><div class="k">Health</div><div class="v mono">{{ v.healthPct.toFixed(1) }}%</div></div>
+          <div class="row">
+            <div class="k">Lat/Lng</div>
+            <div class="v mono">{{ v.position.lat.toFixed(5) }}, {{ v.position.lng.toFixed(5) }}</div>
+          </div>
+
+          <div class="actions">
+            <button (click)="clearSelection()">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph">Fleet</div>
+        <div class="muted">{{ vehicles().length }} vehicles streaming</div>
+      </div>
     </div>
   </div>
 </div>

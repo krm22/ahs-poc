@@ -1,26 +1,42 @@
 <div class="app">
+  <!-- TOP BAR -->
   <header class="topbar">
     <div class="brand">
       <div class="dot"></div>
       <div>
         <div class="title">AHS POC</div>
-        <div class="subtitle">Autonomous Haulage System — Demo UI</div>
+        <div class="subtitle">
+          Autonomous Haulage System — Command & Control
+        </div>
       </div>
     </div>
 
     <nav class="nav">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
+      <a
+        routerLink="/dashboard"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        >Dashboard</a
+      >
+
       <a routerLink="/fleet" routerLinkActive="active">Fleet</a>
+
       <a routerLink="/map" routerLinkActive="active">Map</a>
+
+      <a routerLink="/telemetry" routerLinkActive="active">Telemetry</a>
+
+      <a routerLink="/command" routerLinkActive="active">Command</a>
     </nav>
   </header>
 
+  <!-- MAIN CONTENT -->
   <main class="content">
-    <router-outlet />
+    <router-outlet></router-outlet>
   </main>
 
+  <!-- FOOTER -->
   <footer class="footer">
-    <span>Phase 0 Starter Kit</span>
-    <span>WSL Ubuntu + Angular Standalone</span>
+    <span>{{ version }}</span>
+    <span>Angular 21 Standalone • .NET Backend Ready • SignalR Planned</span>
   </footer>
 </div>
