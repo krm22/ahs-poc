@@ -1,4 +1,4 @@
-<div class="wrap">
+<div class="map-wrap">
   <div class="head">
     <div>
       <div class="h">Live Map (MapLibre GL)</div>
@@ -16,7 +16,8 @@
 
   <div class="grid">
     <div class="map card">
-      <div #map class="map-host"></div>
+      <!-- SINGLE MapLibre container -->
+      <div #mapContainer class="map-host"></div>
     </div>
 
     <div class="side">
@@ -35,13 +36,14 @@
           <div class="row"><div class="k">Payload</div><div class="v mono">{{ v.payloadTons.toFixed(1) }} t</div></div>
           <div class="row"><div class="k">Fuel</div><div class="v mono">{{ v.fuelPct.toFixed(1) }}%</div></div>
           <div class="row"><div class="k">Health</div><div class="v mono">{{ v.healthPct.toFixed(1) }}%</div></div>
+
           <div class="row">
             <div class="k">Lat/Lng</div>
             <div class="v mono">{{ v.position.lat.toFixed(5) }}, {{ v.position.lng.toFixed(5) }}</div>
           </div>
 
           <div class="actions">
-            <button (click)="clearSelection()">Clear</button>
+            <button type="button" (click)="clearSelection()">Clear</button>
           </div>
         </div>
       </div>
