@@ -1,0 +1,13 @@
+<div class="head">
+  <div>
+    <div class="title">Live Telemetry</div>
+    <div class="sub">Mock snapshot (Phase 0)</div>
+  </div>
+</div>
+
+<div class="list">
+  <div class="row" *ngFor="let v of vehicles">
+    <div class="id">{{ v.id }}</div>
+    <div class="meta">{{ v.state }} • {{ v.speedMps }} m/s • {{ v.fuelPct }}%</div>
+  </div>
+</div>

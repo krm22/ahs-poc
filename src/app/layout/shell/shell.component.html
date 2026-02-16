@@ -1,0 +1,26 @@
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <div class="title">AHS POC</div>
+        <div class="subtitle">Autonomous Haulage System — Demo UI</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
+      <a routerLink="/fleet" routerLinkActive="active">Fleet</a>
+      <a routerLink="/map" routerLinkActive="active">Map</a>
+    </nav>
+  </header>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+
+  <footer class="footer">
+    <span>Phase 0 Starter Kit</span>
+    <span>WSL Ubuntu + Angular Standalone</span>
+  </footer>
+</div>

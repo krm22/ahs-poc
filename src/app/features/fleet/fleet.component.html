@@ -1,0 +1,29 @@
+<h2 class="h">Fleet</h2>
+
+<div class="card">
+  <table class="t">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>State</th>
+        <th>Speed (m/s)</th>
+        <th>Payload (t)</th>
+        <th>Fuel (%)</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <tr *ngFor="let v of vehicles">
+        <td class="mono">{{ v.id }}</td>
+        <td>{{ v.name }}</td>
+        <td><span class="pill">{{ v.state }}</span></td>
+        <td>{{ v.speedMps }}</td>
+        <td>{{ v.payloadT }}</td>
+        <td>{{ v.fuelPct }}</td>
+        <td class="muted">{{ v.updatedAtIso | date:'medium' }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

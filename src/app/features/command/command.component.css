@@ -1,0 +1,55 @@
+.head {
+  margin-bottom: 10px;
+}
+
+.title {
+  font-weight: 800;
+}
+
+.sub {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.btn {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+  color: inherit;
+  font-weight: 700;
+}
+
+.btn:hover {
+  border-color: rgba(122, 162, 255, 0.55);
+}
+
+.btn.danger {
+  border-color: rgba(255, 122, 122, 0.45);
+}
+.btn.danger:hover {
+  box-shadow: 0 0 0 2px rgba(255, 122, 122, 0.12);
+}
+
+.status {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 10px;
+}
+
+.label {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.value {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}

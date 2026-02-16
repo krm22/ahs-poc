@@ -1,0 +1,16 @@
+<div class="head">
+  <div>
+    <div class="title">Command</div>
+    <div class="sub">Operator actions (Phase 0: mock)</div>
+  </div>
+</div>
+
+<div class="actions">
+  <button class="btn" (click)="dispatchMock()">Dispatch</button>
+  <button class="btn danger" (click)="stopMock()">Stop</button>
+</div>
+
+<div class="status">
+  <div class="label">Last action</div>
+  <div class="value">{{ lastAction }}</div>
+</div>

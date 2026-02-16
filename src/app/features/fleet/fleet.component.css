@@ -1,0 +1,40 @@
+.h {
+  margin: 0 0 10px 0;
+}
+
+.card {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  border-radius: 16px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.t {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 10px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.muted {
+  opacity: 0.75;
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 162, 255, 0.45);
+  background: rgba(122, 162, 255, 0.12);
+}

@@ -1,0 +1,38 @@
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.title {
+  font-weight: 800;
+}
+
+.sub {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.row {
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.id {
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.meta {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
