@@ -1,7 +1,5 @@
 # AHS-POC
 
-
-
 Autonomous Haulage System (AHS) – Proof of Concept
 Overview
 
@@ -29,7 +27,9 @@ Linux-based development environment (WSL Ubuntu)
 
 Professional Git branching workflow
 
-🎯 Purpose
+
+**🎯 Purpose**
+
 
 This repository exists as a technical portfolio project to demonstrate:
 
@@ -45,7 +45,8 @@ Linux-based development practices
 
 GitHub-based collaborative workflow
 
-🏗 Architecture (Phase 0)
+**🏗 Architecture (Phase 0)**
+
 ahs-poc/
 │
 ├── ui/                     # Angular 21 Standalone frontend
@@ -112,8 +113,11 @@ Angular standalone architecture
 
 CI pipeline for build + test
 
-🔜 Planned Phases
-Phase 1
+**🔜 Planned Phases**
+
+
+**Phase 1**
+
 
 Real simulation engine
 
@@ -123,7 +127,9 @@ Dispatch state machine
 
 Vehicle route simulation
 
-Phase 2
+
+**Phase 2**
+
 
 Map integration
 
@@ -131,7 +137,9 @@ Geofencing
 
 Command validation logic
 
-Phase 3
+
+**Phase 3**
+
 
 Multi-vehicle scaling
 
@@ -139,8 +147,9 @@ Fleet optimization logic
 
 Event logging & replay
 
-📦 Running Locally
-cd ui
+**📦 Running Locally**
+
+cd ahs-poc
 npm install
 npm start
 
