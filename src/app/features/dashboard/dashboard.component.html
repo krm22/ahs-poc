@@ -22,6 +22,27 @@
 
   <div class="card">
     <div class="kpi">
+      <div class="label">Returning</div>
+      <div class="value">{{ totals().returning }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="kpi">
+      <div class="label">Refuelling</div>
+      <div class="value">{{ totals().refuel }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="kpi">
+      <div class="label">Maintenance</div>
+      <div class="value">{{ totals().maint }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="kpi">
       <div class="label">Stopped (Paused/Fault)</div>
       <div class="value">{{ totals().stopped }}</div>
     </div>

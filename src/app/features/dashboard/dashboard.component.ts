@@ -20,13 +20,27 @@ export class DashboardComponent implements OnInit {
   readonly totals = computed(() => {
     const vehicles: FleetVehicle[] = this.fleet.vehicles();
 
+    const stopped = vehicles.filter(
+      (v: FleetVehicle) => v.status === 'PAUSED' || v.status === 'FAULT'
+    ).length;
+
+    const active = vehicles.filter((v: FleetVehicle) =>
+      v.status !== 'IDLE' && v.status !== 'PAUSED' && v.status !== 'FAULT'
+    ).length;
+
+    const hauling = vehicles.filter((v: FleetVehicle) => v.status === 'HAULING').length;
+    const returning = vehicles.filter((v: FleetVehicle) => v.status === 'RETURNING').length;
+    const refuel = vehicles.filter((v: FleetVehicle) => v.status === 'REFUEL').length;
+    const maint = vehicles.filter((v: FleetVehicle) => v.status === 'MAINT').length;
+
     return {
       total: vehicles.length,
-      active: vehicles.filter((v: FleetVehicle) => v.status !== 'IDLE').length,
-      hauling: vehicles.filter((v: FleetVehicle) => v.status === 'HAULING').length,
-      stopped: vehicles.filter(
-        (v: FleetVehicle) => v.status === 'PAUSED' || v.status === 'FAULT'
-      ).length,
+      active,
+      hauling,
+      returning,
+      refuel,
+      maint,
+      stopped,
     };
   });
 

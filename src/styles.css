@@ -1,6 +1,8 @@
 /* Global styles */
-
+@import "maplibre-gl/dist/maplibre-gl.css";
 /* ===== MapLibre Truck Markers (GLOBAL) ===== */
+
+
 .truck-marker {
   width: 18px;
   height: 11px;

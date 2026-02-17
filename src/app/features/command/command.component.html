@@ -1,16 +1,50 @@
-<div class="head">
-  <div>
-    <div class="title">Command</div>
-    <div class="sub">Operator actions (Phase 0: mock)</div>
+<section class="panel">
+  <header class="row">
+    <h2>Command</h2>
+    <div class="muted">Last: {{ lastAction() }}</div>
+  </header>
+
+  <div class="row">
+    <label class="muted">Target</label>
+    <select [value]="targetId()" (change)="onTargetChange($event)">
+      <option value="ALL">ALL</option>
+      <option *ngFor="let id of ids()" [value]="id">{{ id }}</option>
+    </select>
+
+    <button type="button" (click)="dispatch()">Dispatch</button>
+    <button type="button" (click)="sendToFuel()">Fuel</button>
+    <button type="button" (click)="sendToMaint()">Maint</button>
+    <button type="button" (click)="pause()">Pause</button>
+    <button type="button" (click)="resume()">Resume</button>
+    <button type="button" (click)="raiseFault()">Fault</button>
+    <button type="button" (click)="clearFault()">Clear Fault</button>
   </div>
-</div>
 
-<div class="actions">
-  <button class="btn" (click)="dispatchMock()">Dispatch</button>
-  <button class="btn danger" (click)="stopMock()">Stop</button>
-</div>
+  <hr />
 
-<div class="status">
-  <div class="label">Last action</div>
-  <div class="value">{{ lastAction }}</div>
-</div>
+  <div class="row">
+    <div class="muted">
+      Active loader: <span class="pill">{{ activeLoader() ?? 'none' }}</span>
+      • Slots:
+      <span class="pill">
+        {{ slots().used }}/{{ slots().capacity }} (free: {{ slots().free }})
+      </span>
+    </div>
+
+    <button type="button" (click)="bumpFront()" [disabled]="queueIds().length === 0">
+      Bump Front
+    </button>
+  </div>
+
+  <div class="queue">
+    <div class="muted" *ngIf="queueIds().length === 0">Queue empty</div>
+
+    <ol *ngIf="queueIds().length > 0">
+      <li *ngFor="let id of queueIds(); let i = index">
+        <span class="pill">{{ i + 1 }}</span>
+        <span>{{ id }}</span>
+        <span class="muted" *ngIf="i === 0">• front</span>
+      </li>
+    </ol>
+  </div>
+</section>

@@ -1,30 +1,148 @@
-import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
-  OnDestroy,
   ViewChild,
+  computed,
+  effect,
   inject,
   signal,
-  effect,
+  untracked,
 } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import maplibregl, { Map as MlMap, Marker, LngLatLike } from 'maplibre-gl';
 
-import maplibregl, { Map as MlMap, Marker as MlMarker } from 'maplibre-gl';
-import { FleetStateService, FleetVehicle } from '../../core/services/fleet-state.service';
+import { ShovelQueueService, ShovelJob } from '../../core/services/shovel-queue.service';
 
-type LatLng = { lat: number; lng: number };
+export type VehicleStatus = 'ACTIVE' | 'QUEUED' | 'FUEL' | 'MAINT' | 'FAULT' | 'STOPPED';
+export type VehicleTask = 'TO_WORKSHOP' | 'TO_DIG' | 'LOADING' | 'TO_DUMP' | 'DUMPING';
 
-type MapViewVehicle = {
+export interface VehicleState {
   id: string;
-  status: string;
-  speedKph: number;
+
+  // local "world" coords
+  x: number;
+  y: number;
+
   headingDeg: number;
+  speedMps: number;
+
+  status: VehicleStatus;
+  task: VehicleTask;
+
   payloadTons: number;
   fuelPct: number;
   healthPct: number;
-  position: LatLng;
+
+  // routing
+  waypointIndex: number;
+  dwellSecRemaining: number;
+}
+
+export interface VehicleMapVM {
+  id: string;
+  position: { lat: number; lng: number };
+  headingDeg: number;
+  speedKph: number;
+  status: VehicleStatus;
+  task: VehicleTask;
+  payloadTons: number;
+  fuelPct: number;
+  healthPct: number;
+}
+
+type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry>;
+
+const MINE_CENTER: LngLatLike = [115.86, -31.9505];
+
+// Routing anchors (lng,lat)
+const WORKSHOP_LL: [number, number] = [115.8626, -31.9491];
+const PIT_LL: [number, number] = [115.8610, -31.9519];
+const DUMP_LL: [number, number] = [115.8589, -31.9489];
+
+const MINE_LAYOUT: FeatureCollection = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      properties: { kind: 'haul_road', name: 'Main Haul Loop' },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [115.8578, -31.9518],
+          [115.8592, -31.9530],
+          [115.8620, -31.9522],
+          [115.8634, -31.9506],
+          [115.8612, -31.9495],
+          [115.8588, -31.9499],
+          [115.8578, -31.9518],
+        ],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'pit', name: 'Pit 1' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [115.8602, -31.9521],
+            [115.8613, -31.9526],
+            [115.8621, -31.9518],
+            [115.8611, -31.9511],
+            [115.8600, -31.9514],
+            [115.8602, -31.9521],
+          ],
+        ],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'dump', name: 'Waste Dump A' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [115.8584, -31.9492],
+            [115.8594, -31.9494],
+            [115.8595, -31.9486],
+            [115.8585, -31.9484],
+            [115.8584, -31.9492],
+          ],
+        ],
+      },
+    },
+    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Crusher' }, geometry: { type: 'Point', coordinates: [115.8630, -31.9500] } },
+    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Workshop' }, geometry: { type: 'Point', coordinates: WORKSHOP_LL } },
+    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Pit (Dig)' }, geometry: { type: 'Point', coordinates: PIT_LL } },
+    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Dump' }, geometry: { type: 'Point', coordinates: DUMP_LL } },
+  ],
 };
+
+// Transform constants
+const ORIGIN_LNG = 115.86;
+const ORIGIN_LAT = -31.9505;
+const SCALE = 0.00001;
+
+function worldToLngLat(x: number, y: number): { lng: number; lat: number } {
+  return { lng: ORIGIN_LNG + x * SCALE, lat: ORIGIN_LAT + y * SCALE };
+}
+function lngLatToWorld(lng: number, lat: number): { x: number; y: number } {
+  return { x: (lng - ORIGIN_LNG) / SCALE, y: (lat - ORIGIN_LAT) / SCALE };
+}
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+function angleDeg(fromX: number, fromY: number, toX: number, toY: number): number {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const rad = Math.atan2(dy, dx);
+  let deg = (rad * 180) / Math.PI;
+  if (deg < 0) deg += 360;
+  return deg;
+}
 
 @Component({
   selector: 'app-map',
@@ -32,265 +150,476 @@ type MapViewVehicle = {
   imports: [CommonModule],
   templateUrl: './map.component.html',
   styleUrls: ['./map.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MapComponent implements AfterViewInit, OnDestroy {
-  private readonly fleet = inject(FleetStateService);
-  @ViewChild('mapContainer') private mapContainer?: ElementRef<HTMLDivElement>;
+export class MapComponent implements AfterViewInit {
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly shovelQueue = inject(ShovelQueueService);
 
-  private map?: MlMap;
-  private markers = new globalThis.Map<string, MlMarker>();
+  @ViewChild('mapEl', { static: true }) private mapEl!: ElementRef<HTMLDivElement>;
 
-  readonly selectedVehicle = signal<MapViewVehicle | null>(null);
+  private map: MlMap | null = null;
+  private readonly markers = new Map<string, Marker>();
 
-  // per-vehicle sim state
-  private sim = new globalThis.Map<string, { pos: LatLng; headingDeg: number; healthPct: number }>();
+  readonly mapReady = signal<boolean>(false);
+  readonly mapStatus = signal<string>('Initializing…');
 
-  // stable ticking (so trucks move/rotate even if Angular isn’t re-rendering)
-  private tick = signal(0);
-  private timer?: number;
+  private readonly _vehicles = signal<VehicleState[]>([]);
+  readonly vehicles = computed(() => this._vehicles());
+  readonly vehiclesVm = computed<VehicleMapVM[]>(() => this._vehicles().map((v) => this.vehicleToMapView(v)));
 
-  // ---- Pilbara open-cut defaults (pick any Pilbara-ish center; easy to swap later) ----
-  private readonly siteCenter: [number, number] = [119.73, -23.36]; // [lng, lat] (Pilbara region)
-  private readonly siteHalfSizeMeters = 6000; // ~12km x 12km
+  private readonly _selectedVehicleId = signal<string | null>(null);
+  readonly selectedVehicle = computed<VehicleMapVM | null>(() => {
+    const id = this._selectedVehicleId();
+    if (!id) return null;
+    return this.vehiclesVm().find((v) => v.id === id) ?? null;
+  });
 
-  private readonly siteBounds = this.boundsFromCenterMeters(
-    this.siteCenter,
-    this.siteHalfSizeMeters,
-    this.siteHalfSizeMeters
-  ); // [west, south, east, north]
+  clearSelection(): void {
+    this._selectedVehicleId.set(null);
+  }
+  selectVehicle(id: string): void {
+    this._selectedVehicleId.set(id);
+  }
+
+  readonly simRunning = signal<boolean>(true);
+
+  private _raf: number | null = null;
+  private _lastTs = 0;
+
+  // World waypoints: Workshop -> Pit -> Dump -> Workshop
+  private readonly waypointWorld = (() => {
+    const w = lngLatToWorld(WORKSHOP_LL[0], WORKSHOP_LL[1]);
+    const p = lngLatToWorld(PIT_LL[0], PIT_LL[1]);
+    const d = lngLatToWorld(DUMP_LL[0], DUMP_LL[1]);
+    return [
+      { name: 'WORKSHOP', x: w.x, y: w.y },
+      { name: 'PIT', x: p.x, y: p.y },
+      { name: 'DUMP', x: d.x, y: d.y },
+      { name: 'WORKSHOP', x: w.x, y: w.y },
+    ];
+  })();
 
   constructor() {
     effect(() => {
-      // drive updates from our tick + fleet signal
-      this.tick();
-      const list = this.vehicles();
-      if (this.map) this.syncMarkers(list);
+      const running = this.simRunning();
+      const ready = this.mapReady();
+      if (!running || !ready) {
+        this.stopLoop();
+        return;
+      }
+      untracked(() => this.startLoop());
+    });
+
+    effect(() => {
+      if (!this.mapReady()) return;
+      const list = this.vehiclesVm();
+      untracked(() => this.syncMarkers(list));
+    });
+
+    this.destroyRef.onDestroy(() => {
+      this.stopLoop();
+      this.clearMarkers();
+      this.map?.remove();
+      this.map = null;
     });
   }
 
   ngAfterViewInit(): void {
-    queueMicrotask(() => this.initMapSafely());
+    this.createMap();
   }
 
-  vehicles(): MapViewVehicle[] {
-    return this.fleet.vehicles().map((v) => this.toMapView(v));
-  }
+  private createMap(): void {
+    const lightBlankStyle: any = {
+      version: 8,
+      name: 'AHS POC Light',
+      sources: {},
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f3f4f6' } }],
+    };
 
-  clearSelection(): void {
-    this.selectedVehicle.set(null);
-  }
-
-  private initMapSafely(): void {
-    const el = this.mapContainer?.nativeElement;
-    if (!el) {
-      console.warn('[MapComponent] mapContainer missing. Check template #mapContainer.');
-      return;
-    }
-    if (this.map) return;
+    this.mapStatus.set('Creating MapLibre instance…');
 
     this.map = new maplibregl.Map({
-      container: el,
-      style: 'https://demotiles.maplibre.org/style.json',
-      center: this.siteCenter,
-      zoom: 14.5,
-      maxBounds: this.siteBounds,
+      container: this.mapEl.nativeElement,
+      style: lightBlankStyle,
+      center: MINE_CENTER,
+      zoom: 14,
+      attributionControl: { compact: true },
     });
 
-    this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 
     this.map.on('load', () => {
-      this.map?.resize();
+      this.mapStatus.set('Map loaded. Adding mine layout…');
+      this.addMineLayoutLayers();
+      this.mapReady.set(true);
+      this.mapStatus.set('Ready');
 
-      // start by fitting to the “mine site”
-      this.map?.fitBounds(this.siteBounds, { padding: 40, maxZoom: 16.5 });
+      if (this._vehicles().length === 0) this.seedVehicles(10);
 
-      // render once
-      this.syncMarkers(this.vehicles());
+      this.map?.on('click', () => this.clearSelection());
+    });
 
-      // tick at 5Hz
-      this.timer = window.setInterval(() => this.tick.set(this.tick() + 1), 200);
+    this.map.on('error', (e) => {
+      // eslint-disable-next-line no-console
+      console.error('MapLibre error:', e?.error ?? e);
+      this.mapStatus.set('Map error (see console).');
     });
   }
 
-  private toMapView(v: FleetVehicle): MapViewVehicle {
-    const id = v.id;
+  private addMineLayoutLayers(): void {
+    if (!this.map) return;
 
-    // init sim state once per vehicle, spawn inside site
-    if (!this.sim.has(id)) {
-      const n = this.hash01(id);
-      const m = this.hash01(id + '#2');
+    if (!this.map.getSource('mine-layout')) {
+      this.map.addSource('mine-layout', { type: 'geojson', data: MINE_LAYOUT as any });
+    }
 
-      const spawn = this.jitterMetersToLngLat(
-        { lng: this.siteCenter[0], lat: this.siteCenter[1] },
-        2500, // cluster within ~2.5km of center
-        n,
-        m
-      );
-
-      this.sim.set(id, {
-        pos: spawn,
-        headingDeg: Math.floor(this.hash01(id + '#3') * 360),
-        healthPct: 92 + this.hash01(id + '#4') * 6,
+    if (!this.map.getLayer('haul-roads')) {
+      this.map.addLayer({
+        id: 'haul-roads',
+        type: 'line',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'haul_road'],
+        paint: { 'line-color': '#111827', 'line-width': 5, 'line-opacity': 0.85 },
       });
     }
 
-    const state = this.sim.get(id)!;
-
-    const speedKph = v.telemetry.speedKph;
-    const status = String(v.status || '').toUpperCase();
-
-    // heading drift (more movement while hauling/returning)
-    const turnRate = status === 'HAULING' ? 2.6 : status === 'RETURNING' ? 2.0 : 0.8;
-    state.headingDeg = (state.headingDeg + turnRate) % 360;
-
-    // move only when active
-    const active = status !== 'IDLE' && status !== 'PAUSED' && status !== 'FAULT';
-
-    if (active) {
-      const tickSeconds = 0.2; // matches 200ms timer
-      const metersPerTick = (speedKph * 1000) / 3600 * tickSeconds;
-
-      const rad = (state.headingDeg * Math.PI) / 180;
-      const dNorth = Math.cos(rad) * metersPerTick;
-      const dEast = Math.sin(rad) * metersPerTick;
-
-      const next = this.offsetMeters(state.pos, dEast, dNorth);
-
-      // keep inside bounds
-      const bounced = this.bounceWithinBounds(next, state.headingDeg);
-      state.pos = bounced.pos;
-      state.headingDeg = bounced.headingDeg;
+    if (!this.map.getLayer('pit-fill')) {
+      this.map.addLayer({
+        id: 'pit-fill',
+        type: 'fill',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'pit'],
+        paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.14 },
+      });
+    }
+    if (!this.map.getLayer('pit-outline')) {
+      this.map.addLayer({
+        id: 'pit-outline',
+        type: 'line',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'pit'],
+        paint: { 'line-color': '#991b1b', 'line-width': 2, 'line-opacity': 0.85 },
+      });
     }
 
-    // health gently decays
-    state.healthPct = Math.max(50, Math.min(100, state.healthPct + (status === 'FAULT' ? -0.2 : -0.02)));
+    if (!this.map.getLayer('dump-fill')) {
+      this.map.addLayer({
+        id: 'dump-fill',
+        type: 'fill',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'dump'],
+        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.14 },
+      });
+    }
+    if (!this.map.getLayer('dump-outline')) {
+      this.map.addLayer({
+        id: 'dump-outline',
+        type: 'line',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'dump'],
+        paint: { 'line-color': '#92400e', 'line-width': 2, 'line-opacity': 0.85 },
+      });
+    }
+
+    if (!this.map.getLayer('infrastructure')) {
+      this.map.addLayer({
+        id: 'infrastructure',
+        type: 'circle',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'infrastructure'],
+        paint: {
+          'circle-color': '#2563eb',
+          'circle-radius': 7,
+          'circle-opacity': 0.95,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-opacity': 0.6,
+        },
+      });
+    }
+
+    if (!this.map.getLayer('infrastructure-labels')) {
+      this.map.addLayer({
+        id: 'infrastructure-labels',
+        type: 'symbol',
+        source: 'mine-layout',
+        filter: ['==', ['get', 'kind'], 'infrastructure'],
+        layout: { 'text-field': ['get', 'name'], 'text-size': 12, 'text-offset': [0, 1.2] },
+        paint: {
+          'text-color': '#111827',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.2,
+          'text-opacity': 0.95,
+        },
+      });
+    }
+
+    try {
+      this.map.fitBounds(
+        [
+          [115.8570, -31.9534],
+          [115.8642, -31.9480],
+        ],
+        { padding: 40, duration: 400 }
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  // ===== Simulation + Routing =====
+
+  seedVehicles(count = 10): void {
+    const start = lngLatToWorld(WORKSHOP_LL[0], WORKSHOP_LL[1]);
+
+    const seeded: VehicleState[] = Array.from({ length: count }).map((_, i) => ({
+      id: `TRUCK-${String(i + 1).padStart(2, '0')}`,
+      x: start.x + (i % 5) * 6,
+      y: start.y + Math.floor(i / 5) * 6,
+      headingDeg: 90,
+      speedMps: 7 + (i % 3),
+      status: 'ACTIVE',
+      task: 'TO_DIG',
+      payloadTons: 0,
+      fuelPct: 70 + (i % 5) * 5,
+      healthPct: 85 + (i % 4) * 3,
+      waypointIndex: 1,
+      dwellSecRemaining: 0,
+    }));
+
+    this._vehicles.set(seeded);
+
+    const sel = this._selectedVehicleId();
+    if (sel && !seeded.some((v) => v.id === sel)) this._selectedVehicleId.set(null);
+  }
+
+  private startLoop(): void {
+    if (this._raf !== null) return;
+
+    this._lastTs = performance.now();
+    const step = (ts: number) => {
+      this._raf = requestAnimationFrame(step);
+
+      const dtSec = Math.max(0, (ts - this._lastTs) / 1000);
+      this._lastTs = ts;
+
+      this.advanceSimulation(dtSec);
+    };
+
+    this._raf = requestAnimationFrame(step);
+  }
+
+  private stopLoop(): void {
+    if (this._raf !== null) {
+      cancelAnimationFrame(this._raf);
+      this._raf = null;
+    }
+  }
+
+  private advanceSimulation(dtSec: number): void {
+    this._vehicles.update((list) => list.map((v) => this.tickVehicle(v, dtSec)));
+  }
+
+  private tickVehicle(v: VehicleState, dtSec: number): VehicleState {
+    // If stopped or faulted, do nothing
+    if (v.status === 'STOPPED' || v.status === 'FAULT') return v;
+
+    // Dwell / loading / dumping
+    if (v.dwellSecRemaining > 0) {
+      const nextDwell = Math.max(0, v.dwellSecRemaining - dtSec);
+
+      let payload = v.payloadTons;
+      let task = v.task;
+
+      if (v.task === 'LOADING') {
+        const loadRateTps = 220 / 8;
+        payload = Math.min(220, payload + loadRateTps * dtSec);
+        if (nextDwell === 0) task = 'TO_DUMP';
+      }
+
+      if (v.task === 'DUMPING') {
+        const dumpRateTps = 220 / 6;
+        payload = Math.max(0, payload - dumpRateTps * dtSec);
+        if (nextDwell === 0) task = 'TO_WORKSHOP';
+      }
+
+      return {
+        ...v,
+        dwellSecRemaining: nextDwell,
+        payloadTons: payload,
+        task,
+        fuelPct: clamp(v.fuelPct - 0.005 * dtSec, 0, 100),
+        healthPct: clamp(v.healthPct - 0.001 * dtSec, 0, 100),
+      };
+    }
+
+    // Wear & consumption
+    const fuel = clamp(v.fuelPct - 0.02 * (v.speedMps / 7) * dtSec, 0, 100);
+    const health = clamp(v.healthPct - 0.002 * dtSec, 0, 100);
+
+    // ✅ No need for "if (status !== 'FAULT')" here — we already returned for FAULT above.
+    // Compute operational status directly:
+    let status: VehicleStatus = 'ACTIVE';
+    if (fuel <= 10) status = 'FUEL';
+    else if (health <= 15) status = 'MAINT';
+
+    // Target waypoint
+    const wp = this.waypointWorld[clamp(v.waypointIndex, 0, this.waypointWorld.length - 1)];
+    const toX = wp.x;
+    const toY = wp.y;
+
+    const dist = Math.hypot(toX - v.x, toY - v.y);
+    const arriveThreshold = 6;
+
+    if (dist <= arriveThreshold) {
+      // PIT (index 1)
+      if (v.waypointIndex === 1) {
+        this.shovelQueue.enqueue({
+          vehicleId: v.id,
+          payload: { kind: 'ARRIVED_DIG' },
+          createdAt: Date.now(),
+        } satisfies ShovelJob);
+
+        return {
+          ...v,
+          x: toX,
+          y: toY,
+          fuelPct: fuel,
+          healthPct: health,
+          status,
+          task: 'LOADING',
+          dwellSecRemaining: 8,
+          payloadTons: Math.max(0, v.payloadTons),
+          waypointIndex: 2,
+        };
+      }
+
+      // DUMP (index 2)
+      if (v.waypointIndex === 2) {
+        this.shovelQueue.enqueue({
+          vehicleId: v.id,
+          payload: { kind: 'ARRIVED_DUMP' },
+          createdAt: Date.now(),
+        } satisfies ShovelJob);
+
+        return {
+          ...v,
+          x: toX,
+          y: toY,
+          fuelPct: fuel,
+          healthPct: health,
+          status,
+          task: 'DUMPING',
+          dwellSecRemaining: 6,
+          payloadTons: v.payloadTons,
+          waypointIndex: 3,
+        };
+      }
+
+      // WORKSHOP (index 3)
+      if (v.waypointIndex === 3) {
+        const servicedFuel = clamp(fuel + 35, 0, 100);
+        const servicedHealth = clamp(health + 20, 0, 100);
+
+        return {
+          ...v,
+          x: toX,
+          y: toY,
+          fuelPct: servicedFuel,
+          healthPct: servicedHealth,
+          status: 'ACTIVE',
+          task: 'TO_DIG',
+          waypointIndex: 1,
+        };
+      }
+
+      return { ...v, waypointIndex: (v.waypointIndex + 1) % this.waypointWorld.length };
+    }
+
+    // Move toward target
+    const speedFactor = status === 'FUEL' || status === 'MAINT' ? 0.6 : 1.0;
+    const speed = Math.max(0.1, v.speedMps * speedFactor);
+
+    const step = Math.min(dist, speed * dtSec);
+    const nx = v.x + ((toX - v.x) / dist) * step;
+    const ny = v.y + ((toY - v.y) / dist) * step;
+    const headingDeg = angleDeg(v.x, v.y, nx, ny);
+
+    const task: VehicleTask = v.waypointIndex === 1 ? 'TO_DIG' : v.waypointIndex === 2 ? 'TO_DUMP' : 'TO_WORKSHOP';
 
     return {
-      id: v.id,
-      status: v.status,
-      speedKph: v.telemetry.speedKph,
-      headingDeg: Math.round(state.headingDeg),
-      payloadTons: v.telemetry.payloadTons,
-      fuelPct: v.telemetry.fuelPct,
-      healthPct: state.healthPct,
-      position: state.pos,
+      ...v,
+      x: nx,
+      y: ny,
+      headingDeg,
+      fuelPct: fuel,
+      healthPct: health,
+      status,
+      task,
     };
   }
 
-  private syncMarkers(list: MapViewVehicle[]): void {
-    const map = this.map;
-    if (!map) return;
+  // ===== Markers =====
 
-    const ids = new Set<string>(list.map((v) => v.id));
+  private syncMarkers(list: VehicleMapVM[]): void {
+    if (!this.map) return;
 
-    // remove stale
+    const keep = new Set(list.map((v) => v.id));
+
     for (const [id, marker] of this.markers.entries()) {
-      if (!ids.has(id)) {
+      if (!keep.has(id)) {
         marker.remove();
         this.markers.delete(id);
       }
     }
 
-    // upsert
     for (const v of list) {
-      const lng = v.position.lng;
-      const lat = v.position.lat;
-
       let marker = this.markers.get(v.id);
 
       if (!marker) {
-        const node = document.createElement('div');
-        node.className = `truck-marker ${String(v.status || '').toLowerCase()}`;
-        node.title = `${v.id} • ${v.status}`;
-        node.style.setProperty('--hdg', `${v.headingDeg}deg`);
+        const el = document.createElement('div');
+        el.className = 'truck-marker';
+        el.title = `${v.id} • ${v.task}`;
 
-        node.addEventListener('click', () => this.selectedVehicle.set(v));
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.selectVehicle(v.id);
+        });
 
-        marker = new maplibregl.Marker({ element: node })
-          .setLngLat([lng, lat])
-          .addTo(map);
+        marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([v.position.lng, v.position.lat])
+          .addTo(this.map);
 
         this.markers.set(v.id, marker);
       } else {
-        // IMPORTANT: update class + heading every tick (your old code didn’t)
-        const el = marker.getElement() as HTMLDivElement;
-        el.className = `truck-marker ${String(v.status || '').toLowerCase()}`;
-        el.title = `${v.id} • ${v.status}`;
-        el.style.setProperty('--hdg', `${v.headingDeg}deg`);
-        marker.setLngLat([lng, lat]);
+        marker.setLngLat([v.position.lng, v.position.lat]);
       }
+
+      const el = marker.getElement();
+      el.setAttribute('data-status', v.status);
+      el.setAttribute('data-task', v.task);
+      el.title = `${v.id} • ${v.task} • ${v.speedKph.toFixed(1)} kph`;
     }
   }
 
-  ngOnDestroy(): void {
-    if (this.timer) {
-      window.clearInterval(this.timer);
-      this.timer = undefined;
-    }
-
-    for (const marker of this.markers.values()) marker.remove();
+  private clearMarkers(): void {
+    for (const m of this.markers.values()) m.remove();
     this.markers.clear();
-
-    this.map?.remove();
-    this.map = undefined;
   }
 
-  // ---------------- helpers ----------------
-
-  private boundsFromCenterMeters(
-    centerLngLat: [number, number],
-    halfWidthM: number,
-    halfHeightM: number
-  ): [number, number, number, number] {
-    const [lng, lat] = centerLngLat;
-
-    const south = lat - halfHeightM / 111_320;
-    const north = lat + halfHeightM / 111_320;
-
-    const metersPerDegLng = 111_320 * Math.cos((lat * Math.PI) / 180);
-    const west = lng - halfWidthM / metersPerDegLng;
-    const east = lng + halfWidthM / metersPerDegLng;
-
-    return [west, south, east, north];
-  }
-
-  private offsetMeters(pos: LatLng, eastM: number, northM: number): LatLng {
-    const dLat = northM / 111_320;
-    const metersPerDegLng = 111_320 * Math.cos((pos.lat * Math.PI) / 180);
-    const dLng = eastM / metersPerDegLng;
-    return { lat: pos.lat + dLat, lng: pos.lng + dLng };
-  }
-
-  private jitterMetersToLngLat(center: LatLng, maxMeters: number, a: number, b: number): LatLng {
-    const x = (a - 0.5) * 2; // -1..1
-    const y = (b - 0.5) * 2;
-
-    const east = x * maxMeters;
-    const north = y * maxMeters;
-
-    return this.offsetMeters(center, east, north);
-  }
-
-  private bounceWithinBounds(next: LatLng, headingDeg: number): { pos: LatLng; headingDeg: number } {
-    const [west, south, east, north] = this.siteBounds;
-    let hdg = headingDeg;
-    let pos = next;
-
-    if (pos.lng < west) { pos = { ...pos, lng: west }; hdg = (360 - hdg) % 360; }
-    else if (pos.lng > east) { pos = { ...pos, lng: east }; hdg = (360 - hdg) % 360; }
-
-    if (pos.lat < south) { pos = { ...pos, lat: south }; hdg = (180 - hdg + 360) % 360; }
-    else if (pos.lat > north) { pos = { ...pos, lat: north }; hdg = (180 - hdg + 360) % 360; }
-
-    return { pos, headingDeg: hdg };
-  }
-
-  private hash01(s: string): number {
-    let h = 2166136261;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return ((h >>> 0) % 10_000) / 10_000;
+  private vehicleToMapView(v: VehicleState): VehicleMapVM {
+    const ll = worldToLngLat(v.x, v.y);
+    return {
+      id: v.id,
+      position: { lat: ll.lat, lng: ll.lng },
+      headingDeg: v.headingDeg,
+      speedKph: v.speedMps * 3.6,
+      status: v.status,
+      task: v.task,
+      payloadTons: v.payloadTons,
+      fuelPct: v.fuelPct,
+      healthPct: v.healthPct,
+    };
   }
 }

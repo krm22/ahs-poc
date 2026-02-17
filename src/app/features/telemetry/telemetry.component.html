@@ -1,25 +1,112 @@
 <!-- src/app/features/telemetry/telemetry.component.html -->
-<section class="telemetry">
-  <header class="toolbar">
-    <label>
-      Vehicle
-      <select (change)="onVehicleChange($event)">
-        <option *ngFor="let id of vehicleIds()" [value]="id" [selected]="id === selectedVehicleId()">
-          {{ id }}
-        </option>
-      </select>
-    </label>
+<section class="wrap">
+  <div class="head">
+    <div>
+      <div class="h">Telemetry Console</div>
+      <div class="sub">
+        Live vehicle telemetry • status events • refuel & maintenance stops
+      </div>
+    </div>
 
-    <label class="toggle">
-      <input type="checkbox" [checked]="showTelemetry()" (change)="onShowTelemetryChange($event)" />
-      Show telemetry
-    </label>
+    <div class="controls">
+      <label class="select">
+        Vehicle
+        <select (change)="onVehicleChange($event)">
+          <option *ngFor="let id of vehicleIds()" [value]="id" [selected]="id === selectedVehicleId()">
+            {{ id }}
+          </option>
+        </select>
+      </label>
 
-    <label class="toggle">
-      <input type="checkbox" [checked]="showEvents()" (change)="onShowEventsChange($event)" />
-      Show events
-    </label>
-  </header>
+      <label class="select">
+        Telemetry every
+        <select (change)="onTelemetryEveryChange($event)">
+          <option [value]="1" [selected]="telemetryEverySec() === 1">1s</option>
+          <option [value]="2" [selected]="telemetryEverySec() === 2">2s</option>
+          <option [value]="5" [selected]="telemetryEverySec() === 5">5s</option>
+        </select>
+      </label>
 
-  <!-- your existing UI below -->
+      <label class="chk">
+        <input type="checkbox" [checked]="showTelemetry()" (change)="onShowTelemetryChange($event)" />
+        Telemetry
+      </label>
+
+      <label class="chk">
+        <input type="checkbox" [checked]="showEvents()" (change)="onShowEventsChange($event)" />
+        Events
+      </label>
+
+      <label class="chk">
+        <input type="checkbox" [checked]="autoScroll()" (change)="onAutoScrollChange($event)" />
+        Auto-scroll
+      </label>
+
+      <button type="button" (click)="clearLog()">Clear</button>
+    </div>
+  </div>
+
+  <!-- Summary / alerts -->
+  <div class="summary" *ngIf="selectionSummary() as s">
+    <div class="sumCard">
+      <div class="lbl">Selected</div>
+      <div class="val mono">{{ s.id }}</div>
+      <div class="mini">
+        <span [class]="statusPillClass(s.status)">{{ s.status }}</span>
+      </div>
+    </div>
+
+    <div class="sumCard">
+      <div class="lbl">Speed</div>
+      <div class="val mono">{{ s.speedKph.toFixed(0) }} kph</div>
+      <div class="mini">Est cycle {{ s.cycleMin.toFixed(1) }} min</div>
+    </div>
+
+    <div class="sumCard">
+      <div class="lbl">Payload</div>
+      <div class="val mono">{{ s.payloadTons.toFixed(0) }} t</div>
+      <div class="mini">Target ~210 t</div>
+    </div>
+
+    <div class="sumCard">
+      <div class="lbl">Fuel</div>
+      <div class="val mono">{{ s.fuelPct.toFixed(0) }}%</div>
+      <div class="mini" [class.warn]="s.fuelPct <= 20">Refuel at ≤20%</div>
+    </div>
+
+    <div class="sumCard">
+      <div class="lbl">Health</div>
+      <div class="val mono">{{ s.healthPct.toFixed(0) }}%</div>
+      <div class="mini" [class.warn]="s.healthPct <= 60">Maint at ≤60%</div>
+    </div>
+
+    <div class="sumCard">
+      <div class="lbl">Engine Temp</div>
+      <div class="val mono">{{ s.engineTempC.toFixed(0) }}°C</div>
+      <div class="mini" [class.warn]="s.engineTempC >= 105">High at ≥105°C</div>
+    </div>
+
+    <div class="sumCard alerts">
+      <div class="lbl">Alerts</div>
+      <div class="val" *ngIf="s.alerts.length === 0">None</div>
+      <div class="val" *ngIf="s.alerts.length > 0">
+        <span class="alertPill" *ngFor="let a of s.alerts">{{ a }}</span>
+      </div>
+      <div class="mini">
+        Fleet: {{ fleetAlerts().lowFuel }} low fuel • {{ fleetAlerts().lowHealth }} low health • {{ fleetAlerts().highTemp }} high temp
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="list">
+    <div *ngIf="rows().length === 0" class="empty">No rows yet.</div>
+
+    <div *ngFor="let r of rows()" [class]="rowClass(r)">
+      <div class="ts mono">{{ r.tsIso | date:'HH:mm:ss' }}</div>
+      <div class="id mono">{{ r.id }}</div>
+      <div class="msg">{{ r.msg }}</div>
+      <div class="meta mono">{{ r.meta }}</div>
+    </div>
+  </div>
 </section>
