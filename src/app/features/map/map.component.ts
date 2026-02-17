@@ -1,625 +1,969 @@
+// src/app/features/map/map.component.ts
 import {
   AfterViewInit,
-  ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   ElementRef,
+  OnDestroy,
   ViewChild,
-  computed,
-  effect,
-  inject,
-  signal,
-  untracked,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import maplibregl, { Map as MlMap, Marker, LngLatLike } from 'maplibre-gl';
 
-import { ShovelQueueService, ShovelJob } from '../../core/services/shovel-queue.service';
+import maplibregl from 'maplibre-gl';
+import { environment } from '../../../environments/environment';
 
-export type VehicleStatus = 'ACTIVE' | 'QUEUED' | 'FUEL' | 'MAINT' | 'FAULT' | 'STOPPED';
-export type VehicleTask = 'TO_WORKSHOP' | 'TO_DIG' | 'LOADING' | 'TO_DUMP' | 'DUMPING';
+// ✅ Use the SAME path your app already uses for the service
+import { FleetStateService } from '../../core/services/fleet-state.service';
 
-export interface VehicleState {
+type LngLat = [number, number];
+type TruckMode = 'HAULING' | 'LOADING' | 'DUMPING' | 'IDLE';
+
+interface TruckSim {
   id: string;
-
-  // local "world" coords
-  x: number;
-  y: number;
-
-  headingDeg: number;
+  progressM: number;
   speedMps: number;
-
-  status: VehicleStatus;
-  task: VehicleTask;
-
-  payloadTons: number;
-  fuelPct: number;
-  healthPct: number;
-
-  // routing
-  waypointIndex: number;
-  dwellSecRemaining: number;
-}
-
-export interface VehicleMapVM {
-  id: string;
-  position: { lat: number; lng: number };
-  headingDeg: number;
-  speedKph: number;
-  status: VehicleStatus;
-  task: VehicleTask;
-  payloadTons: number;
-  fuelPct: number;
-  healthPct: number;
-}
-
-type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry>;
-
-const MINE_CENTER: LngLatLike = [115.86, -31.9505];
-
-// Routing anchors (lng,lat)
-const WORKSHOP_LL: [number, number] = [115.8626, -31.9491];
-const PIT_LL: [number, number] = [115.8610, -31.9519];
-const DUMP_LL: [number, number] = [115.8589, -31.9489];
-
-const MINE_LAYOUT: FeatureCollection = {
-  type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      properties: { kind: 'haul_road', name: 'Main Haul Loop' },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [115.8578, -31.9518],
-          [115.8592, -31.9530],
-          [115.8620, -31.9522],
-          [115.8634, -31.9506],
-          [115.8612, -31.9495],
-          [115.8588, -31.9499],
-          [115.8578, -31.9518],
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      properties: { kind: 'pit', name: 'Pit 1' },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [115.8602, -31.9521],
-            [115.8613, -31.9526],
-            [115.8621, -31.9518],
-            [115.8611, -31.9511],
-            [115.8600, -31.9514],
-            [115.8602, -31.9521],
-          ],
-        ],
-      },
-    },
-    {
-      type: 'Feature',
-      properties: { kind: 'dump', name: 'Waste Dump A' },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [115.8584, -31.9492],
-            [115.8594, -31.9494],
-            [115.8595, -31.9486],
-            [115.8585, -31.9484],
-            [115.8584, -31.9492],
-          ],
-        ],
-      },
-    },
-    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Crusher' }, geometry: { type: 'Point', coordinates: [115.8630, -31.9500] } },
-    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Workshop' }, geometry: { type: 'Point', coordinates: WORKSHOP_LL } },
-    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Pit (Dig)' }, geometry: { type: 'Point', coordinates: PIT_LL } },
-    { type: 'Feature', properties: { kind: 'infrastructure', name: 'Dump' }, geometry: { type: 'Point', coordinates: DUMP_LL } },
-  ],
-};
-
-// Transform constants
-const ORIGIN_LNG = 115.86;
-const ORIGIN_LAT = -31.9505;
-const SCALE = 0.00001;
-
-function worldToLngLat(x: number, y: number): { lng: number; lat: number } {
-  return { lng: ORIGIN_LNG + x * SCALE, lat: ORIGIN_LAT + y * SCALE };
-}
-function lngLatToWorld(lng: number, lat: number): { x: number; y: number } {
-  return { x: (lng - ORIGIN_LNG) / SCALE, y: (lat - ORIGIN_LAT) / SCALE };
-}
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
-}
-function angleDeg(fromX: number, fromY: number, toX: number, toY: number): number {
-  const dx = toX - fromX;
-  const dy = toY - fromY;
-  const rad = Math.atan2(dy, dx);
-  let deg = (rad * 180) / Math.PI;
-  if (deg < 0) deg += 360;
-  return deg;
+  mode: TruckMode;
+  dwellLeftS: number;
+  targetStop?: 'PIT' | 'DUMP';
+  lastHeadingDeg: number;
 }
 
 @Component({
   selector: 'app-map',
   standalone: true,
-  imports: [CommonModule],
   templateUrl: './map.component.html',
   styleUrls: ['./map.component.css'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MapComponent implements AfterViewInit {
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly shovelQueue = inject(ShovelQueueService);
+export class MapComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('mapEl', { static: true }) mapEl!: ElementRef<HTMLDivElement>;
 
-  @ViewChild('mapEl', { static: true }) private mapEl!: ElementRef<HTMLDivElement>;
+  private map!: maplibregl.Map;
 
-  private map: MlMap | null = null;
-  private readonly markers = new Map<string, Marker>();
+  // matches your HTML checkboxes
+  layers = {
+    satellite: false,
+    hillshade: true, // hillshade only
+    pits3d: true, // terrain + extrusions
+    haul: true, // route
+    trucks: true, // trucks + animation
+  };
 
-  readonly mapReady = signal<boolean>(false);
-  readonly mapStatus = signal<string>('Initializing…');
+  // DEM maxzoom from your TileJSON (avoid z=13 400)
+  private readonly DEM_MAX_ZOOM = 12;
+  private readonly TERRAIN_EXAGGERATION = 1.35;
 
-  private readonly _vehicles = signal<VehicleState[]>([]);
-  readonly vehicles = computed(() => this._vehicles());
-  readonly vehiclesVm = computed<VehicleMapVM[]>(() => this._vehicles().map((v) => this.vehicleToMapView(v)));
+  // Sources & layers
+  private readonly SRC_ROUTE = 'src-haul-route';
+  private readonly SRC_PITS = 'src-pits';
+  private readonly SRC_DUMPS = 'src-dumps';
+  private readonly SRC_INFRA = 'src-infra';
+  private readonly SRC_TRUCKS = 'src-trucks';
 
-  private readonly _selectedVehicleId = signal<string | null>(null);
-  readonly selectedVehicle = computed<VehicleMapVM | null>(() => {
-    const id = this._selectedVehicleId();
-    if (!id) return null;
-    return this.vehiclesVm().find((v) => v.id === id) ?? null;
-  });
+  private readonly LYR_ROUTE = 'lyr-haul-route';
 
-  clearSelection(): void {
-    this._selectedVehicleId.set(null);
-  }
-  selectVehicle(id: string): void {
-    this._selectedVehicleId.set(id);
-  }
+  private readonly LYR_PITS_FILL = 'lyr-pits-fill';
+  private readonly LYR_PITS_3D = 'lyr-pits-3d';
 
-  readonly simRunning = signal<boolean>(true);
+  private readonly LYR_DUMPS_FILL = 'lyr-dumps-fill';
+  private readonly LYR_DUMPS_3D = 'lyr-dumps-3d';
 
-  private _raf: number | null = null;
-  private _lastTs = 0;
+  private readonly LYR_INFRA = 'lyr-infra';
+  private readonly LYR_INFRA_LABELS = 'lyr-infra-labels';
 
-  // World waypoints: Workshop -> Pit -> Dump -> Workshop
-  private readonly waypointWorld = (() => {
-    const w = lngLatToWorld(WORKSHOP_LL[0], WORKSHOP_LL[1]);
-    const p = lngLatToWorld(PIT_LL[0], PIT_LL[1]);
-    const d = lngLatToWorld(DUMP_LL[0], DUMP_LL[1]);
-    return [
-      { name: 'WORKSHOP', x: w.x, y: w.y },
-      { name: 'PIT', x: p.x, y: p.y },
-      { name: 'DUMP', x: d.x, y: d.y },
-      { name: 'WORKSHOP', x: w.x, y: w.y },
-    ];
-  })();
+  private readonly LYR_TRUCKS = 'lyr-trucks';
+  private readonly LYR_TRUCKS_LABELS = 'lyr-trucks-labels';
 
-  constructor() {
-    effect(() => {
-      const running = this.simRunning();
-      const ready = this.mapReady();
-      if (!running || !ready) {
-        this.stopLoop();
-        return;
-      }
-      untracked(() => this.startLoop());
-    });
+  // Simulation state
+  private animationHandle: number | null = null;
+  private lastTickMs = 0;
 
-    effect(() => {
-      if (!this.mapReady()) return;
-      const list = this.vehiclesVm();
-      untracked(() => this.syncMarkers(list));
-    });
+  private routeCoords: LngLat[] = [];
+  private routeCumDistM: number[] = [];
+  private routeLenM = 0;
 
-    this.destroyRef.onDestroy(() => {
-      this.stopLoop();
-      this.clearMarkers();
-      this.map?.remove();
-      this.map = null;
-    });
-  }
+  private trucks: TruckSim[] = [];
+
+  private pitStops: {
+    name: string;
+    center: LngLat;
+    radiusM: number;
+    dwellS: [number, number];
+  }[] = [];
+
+  private dumpStops: {
+    name: string;
+    center: LngLat;
+    radiusM: number;
+    dwellS: [number, number];
+  }[] = [];
+
+  constructor(private fleet: FleetStateService) {}
 
   ngAfterViewInit(): void {
-    this.createMap();
+    this.initMap();
   }
 
-  private createMap(): void {
-    const lightBlankStyle: any = {
-      version: 8,
-      name: 'AHS POC Light',
-      sources: {},
-      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f3f4f6' } }],
-    };
-
-    this.mapStatus.set('Creating MapLibre instance…');
-
-    this.map = new maplibregl.Map({
-      container: this.mapEl.nativeElement,
-      style: lightBlankStyle,
-      center: MINE_CENTER,
-      zoom: 14,
-      attributionControl: { compact: true },
-    });
-
-    this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-
-    this.map.on('load', () => {
-      this.mapStatus.set('Map loaded. Adding mine layout…');
-      this.addMineLayoutLayers();
-      this.mapReady.set(true);
-      this.mapStatus.set('Ready');
-
-      if (this._vehicles().length === 0) this.seedVehicles(10);
-
-      this.map?.on('click', () => this.clearSelection());
-    });
-
-    this.map.on('error', (e) => {
-      // eslint-disable-next-line no-console
-      console.error('MapLibre error:', e?.error ?? e);
-      this.mapStatus.set('Map error (see console).');
-    });
-  }
-
-  private addMineLayoutLayers(): void {
-    if (!this.map) return;
-
-    if (!this.map.getSource('mine-layout')) {
-      this.map.addSource('mine-layout', { type: 'geojson', data: MINE_LAYOUT as any });
-    }
-
-    if (!this.map.getLayer('haul-roads')) {
-      this.map.addLayer({
-        id: 'haul-roads',
-        type: 'line',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'haul_road'],
-        paint: { 'line-color': '#111827', 'line-width': 5, 'line-opacity': 0.85 },
-      });
-    }
-
-    if (!this.map.getLayer('pit-fill')) {
-      this.map.addLayer({
-        id: 'pit-fill',
-        type: 'fill',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'pit'],
-        paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.14 },
-      });
-    }
-    if (!this.map.getLayer('pit-outline')) {
-      this.map.addLayer({
-        id: 'pit-outline',
-        type: 'line',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'pit'],
-        paint: { 'line-color': '#991b1b', 'line-width': 2, 'line-opacity': 0.85 },
-      });
-    }
-
-    if (!this.map.getLayer('dump-fill')) {
-      this.map.addLayer({
-        id: 'dump-fill',
-        type: 'fill',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'dump'],
-        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.14 },
-      });
-    }
-    if (!this.map.getLayer('dump-outline')) {
-      this.map.addLayer({
-        id: 'dump-outline',
-        type: 'line',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'dump'],
-        paint: { 'line-color': '#92400e', 'line-width': 2, 'line-opacity': 0.85 },
-      });
-    }
-
-    if (!this.map.getLayer('infrastructure')) {
-      this.map.addLayer({
-        id: 'infrastructure',
-        type: 'circle',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'infrastructure'],
-        paint: {
-          'circle-color': '#2563eb',
-          'circle-radius': 7,
-          'circle-opacity': 0.95,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#0f172a',
-          'circle-stroke-opacity': 0.6,
-        },
-      });
-    }
-
-    if (!this.map.getLayer('infrastructure-labels')) {
-      this.map.addLayer({
-        id: 'infrastructure-labels',
-        type: 'symbol',
-        source: 'mine-layout',
-        filter: ['==', ['get', 'kind'], 'infrastructure'],
-        layout: { 'text-field': ['get', 'name'], 'text-size': 12, 'text-offset': [0, 1.2] },
-        paint: {
-          'text-color': '#111827',
-          'text-halo-color': '#ffffff',
-          'text-halo-width': 1.2,
-          'text-opacity': 0.95,
-        },
-      });
-    }
-
+  ngOnDestroy(): void {
+    this.stopAnimation();
     try {
-      this.map.fitBounds(
-        [
-          [115.8570, -31.9534],
-          [115.8642, -31.9480],
-        ],
-        { padding: 40, duration: 400 }
-      );
+      this.map?.remove();
     } catch {
       // ignore
     }
   }
 
-  // ===== Simulation + Routing =====
+  // -----------------------------------------
+  // UI toggles (called by your existing HTML)
+  // -----------------------------------------
+  setLayer(layer: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    (this.layers as any)[layer] = checked;
 
-  seedVehicles(count = 10): void {
-    const start = lngLatToWorld(WORKSHOP_LL[0], WORKSHOP_LL[1]);
+    switch (layer) {
+      case 'satellite':
+        this.setBaseStyle(checked);
+        break;
 
-    const seeded: VehicleState[] = Array.from({ length: count }).map((_, i) => ({
-      id: `TRUCK-${String(i + 1).padStart(2, '0')}`,
-      x: start.x + (i % 5) * 6,
-      y: start.y + Math.floor(i / 5) * 6,
-      headingDeg: 90,
-      speedMps: 7 + (i % 3),
-      status: 'ACTIVE',
-      task: 'TO_DIG',
-      payloadTons: 0,
-      fuelPct: 70 + (i % 5) * 5,
-      healthPct: 85 + (i % 4) * 3,
-      waypointIndex: 1,
-      dwellSecRemaining: 0,
-    }));
+      case 'hillshade':
+        this.applyHillshadeState();
+        break;
 
-    this._vehicles.set(seeded);
+      case 'pits3d':
+        this.applyTerrainState();
+        this.applyPitDump3DState();
+        break;
 
-    const sel = this._selectedVehicleId();
-    if (sel && !seeded.some((v) => v.id === sel)) this._selectedVehicleId.set(null);
+      case 'haul':
+        this.applyRouteState();
+        break;
+
+      case 'trucks':
+        this.applyTrucksState();
+        break;
+
+      default:
+        break;
+    }
   }
 
-  private startLoop(): void {
-    if (this._raf !== null) return;
+  // -----------------------------------------
+  // Map init
+  // -----------------------------------------
+  private initMap(): void {
+    let key = '';
+    try {
+      key = this.getMapTilerKey();
+    } catch (err) {
+      console.error(err);
+      return;
+    }
 
-    this._lastTs = performance.now();
-    const step = (ts: number) => {
-      this._raf = requestAnimationFrame(step);
+    const center: LngLat = [119.35, -23.36]; // Newman/Whaleback-ish
 
-      const dtSec = Math.max(0, (ts - this._lastTs) / 1000);
-      this._lastTs = ts;
-
-      this.advanceSimulation(dtSec);
+    const options: any = {
+      container: this.mapEl.nativeElement,
+      style: this.getBaseStyleUrl(key, this.layers.satellite),
+      center,
+      zoom: 13,
+      pitch: 55,
+      bearing: -20,
+      attributionControl: true,
     };
 
-    this._raf = requestAnimationFrame(step);
+    this.map = new maplibregl.Map(options);
+    this.map.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: true }),
+      'top-right'
+    );
+
+    this.map.on('load', () => {
+      this.ensureDemSourcesAndHillshadeExist();
+      this.buildMineGeometry(center);
+
+      this.ensureMineSourcesAndLayersExist();
+      this.ensureTruckSourceAndLayersExist();
+
+      // ✅ FORCE-APPLY STYLES EVEN IF LAYERS ALREADY EXIST (fixes “no color changes”)
+      this.applyLabelAndMarkerStyles();
+
+      this.applyTerrainState();
+      this.applyHillshadeState();
+      this.applyPitDump3DState();
+      this.applyRouteState();
+      this.applyTrucksState();
+
+      this.attachInteractions();
+      this.map.resize();
+    });
+
+    this.map.on('error', (e: any) => {
+      console.error('[MapComponent] MapLibre error:', e?.error || e);
+    });
   }
 
-  private stopLoop(): void {
-    if (this._raf !== null) {
-      cancelAnimationFrame(this._raf);
-      this._raf = null;
-    }
-  }
-
-  private advanceSimulation(dtSec: number): void {
-    this._vehicles.update((list) => list.map((v) => this.tickVehicle(v, dtSec)));
-  }
-
-  private tickVehicle(v: VehicleState, dtSec: number): VehicleState {
-    // If stopped or faulted, do nothing
-    if (v.status === 'STOPPED' || v.status === 'FAULT') return v;
-
-    // Dwell / loading / dumping
-    if (v.dwellSecRemaining > 0) {
-      const nextDwell = Math.max(0, v.dwellSecRemaining - dtSec);
-
-      let payload = v.payloadTons;
-      let task = v.task;
-
-      if (v.task === 'LOADING') {
-        const loadRateTps = 220 / 8;
-        payload = Math.min(220, payload + loadRateTps * dtSec);
-        if (nextDwell === 0) task = 'TO_DUMP';
-      }
-
-      if (v.task === 'DUMPING') {
-        const dumpRateTps = 220 / 6;
-        payload = Math.max(0, payload - dumpRateTps * dtSec);
-        if (nextDwell === 0) task = 'TO_WORKSHOP';
-      }
-
-      return {
-        ...v,
-        dwellSecRemaining: nextDwell,
-        payloadTons: payload,
-        task,
-        fuelPct: clamp(v.fuelPct - 0.005 * dtSec, 0, 100),
-        healthPct: clamp(v.healthPct - 0.001 * dtSec, 0, 100),
-      };
-    }
-
-    // Wear & consumption
-    const fuel = clamp(v.fuelPct - 0.02 * (v.speedMps / 7) * dtSec, 0, 100);
-    const health = clamp(v.healthPct - 0.002 * dtSec, 0, 100);
-
-    // ✅ No need for "if (status !== 'FAULT')" here — we already returned for FAULT above.
-    // Compute operational status directly:
-    let status: VehicleStatus = 'ACTIVE';
-    if (fuel <= 10) status = 'FUEL';
-    else if (health <= 15) status = 'MAINT';
-
-    // Target waypoint
-    const wp = this.waypointWorld[clamp(v.waypointIndex, 0, this.waypointWorld.length - 1)];
-    const toX = wp.x;
-    const toY = wp.y;
-
-    const dist = Math.hypot(toX - v.x, toY - v.y);
-    const arriveThreshold = 6;
-
-    if (dist <= arriveThreshold) {
-      // PIT (index 1)
-      if (v.waypointIndex === 1) {
-        this.shovelQueue.enqueue({
-          vehicleId: v.id,
-          payload: { kind: 'ARRIVED_DIG' },
-          createdAt: Date.now(),
-        } satisfies ShovelJob);
-
-        return {
-          ...v,
-          x: toX,
-          y: toY,
-          fuelPct: fuel,
-          healthPct: health,
-          status,
-          task: 'LOADING',
-          dwellSecRemaining: 8,
-          payloadTons: Math.max(0, v.payloadTons),
-          waypointIndex: 2,
-        };
-      }
-
-      // DUMP (index 2)
-      if (v.waypointIndex === 2) {
-        this.shovelQueue.enqueue({
-          vehicleId: v.id,
-          payload: { kind: 'ARRIVED_DUMP' },
-          createdAt: Date.now(),
-        } satisfies ShovelJob);
-
-        return {
-          ...v,
-          x: toX,
-          y: toY,
-          fuelPct: fuel,
-          healthPct: health,
-          status,
-          task: 'DUMPING',
-          dwellSecRemaining: 6,
-          payloadTons: v.payloadTons,
-          waypointIndex: 3,
-        };
-      }
-
-      // WORKSHOP (index 3)
-      if (v.waypointIndex === 3) {
-        const servicedFuel = clamp(fuel + 35, 0, 100);
-        const servicedHealth = clamp(health + 20, 0, 100);
-
-        return {
-          ...v,
-          x: toX,
-          y: toY,
-          fuelPct: servicedFuel,
-          healthPct: servicedHealth,
-          status: 'ACTIVE',
-          task: 'TO_DIG',
-          waypointIndex: 1,
-        };
-      }
-
-      return { ...v, waypointIndex: (v.waypointIndex + 1) % this.waypointWorld.length };
-    }
-
-    // Move toward target
-    const speedFactor = status === 'FUEL' || status === 'MAINT' ? 0.6 : 1.0;
-    const speed = Math.max(0.1, v.speedMps * speedFactor);
-
-    const step = Math.min(dist, speed * dtSec);
-    const nx = v.x + ((toX - v.x) / dist) * step;
-    const ny = v.y + ((toY - v.y) / dist) * step;
-    const headingDeg = angleDeg(v.x, v.y, nx, ny);
-
-    const task: VehicleTask = v.waypointIndex === 1 ? 'TO_DIG' : v.waypointIndex === 2 ? 'TO_DUMP' : 'TO_WORKSHOP';
-
-    return {
-      ...v,
-      x: nx,
-      y: ny,
-      headingDeg,
-      fuelPct: fuel,
-      healthPct: health,
-      status,
-      task,
-    };
-  }
-
-  // ===== Markers =====
-
-  private syncMarkers(list: VehicleMapVM[]): void {
+  private setBaseStyle(useSatellite: boolean): void {
     if (!this.map) return;
 
-    const keep = new Set(list.map((v) => v.id));
+    const key = this.getMapTilerKey();
+    this.map.setStyle(this.getBaseStyleUrl(key, useSatellite));
 
-    for (const [id, marker] of this.markers.entries()) {
-      if (!keep.has(id)) {
-        marker.remove();
-        this.markers.delete(id);
-      }
+    // setStyle wipes custom layers/sources; rebuild after style loads
+    this.map.once('styledata', () => {
+      const c = this.map.getCenter();
+      const center: LngLat = [c.lng, c.lat];
+
+      this.ensureDemSourcesAndHillshadeExist();
+      this.buildMineGeometry(center);
+
+      this.ensureMineSourcesAndLayersExist();
+      this.ensureTruckSourceAndLayersExist();
+
+      // ✅ re-apply styles after style switch
+      this.applyLabelAndMarkerStyles();
+
+      this.applyTerrainState();
+      this.applyHillshadeState();
+      this.applyPitDump3DState();
+      this.applyRouteState();
+      this.applyTrucksState();
+
+      this.attachInteractions();
+    });
+  }
+
+  // -----------------------------------------
+  // MapTiler helpers
+  // -----------------------------------------
+  private getMapTilerKey(): string {
+    const env: any = environment as any;
+    const key = env.maptilerKey ?? env.mapTilerKey ?? env.mappTilerKey ?? '';
+    if (!key || typeof key !== 'string' || key.trim().length < 10) {
+      throw new Error(
+        '[MapComponent] Missing MapTiler API key (environment.maptilerKey).'
+      );
+    }
+    return key.trim();
+  }
+
+  private getBaseStyleUrl(key: string, satellite: boolean): string {
+    const k = encodeURIComponent(key);
+    return satellite
+      ? `https://api.maptiler.com/maps/satellite/style.json?key=${k}`
+      : `https://api.maptiler.com/maps/streets/style.json?key=${k}`;
+  }
+
+  // -----------------------------------------
+  // DEM + hillshade
+  // -----------------------------------------
+  private ensureDemSourcesAndHillshadeExist(): void {
+    if (!this.map) return;
+
+    const key = this.getMapTilerKey();
+    const tileJsonUrl = `https://api.maptiler.com/tiles/terrain-rgb/tiles.json?key=${encodeURIComponent(
+      key
+    )}`;
+
+    if (!this.map.getSource('terrain-dem')) {
+      this.map.addSource(
+        'terrain-dem',
+        {
+          type: 'raster-dem',
+          url: tileJsonUrl,
+          tileSize: 256,
+          maxzoom: this.DEM_MAX_ZOOM,
+        } as any
+      );
     }
 
-    for (const v of list) {
-      let marker = this.markers.get(v.id);
+    if (!this.map.getSource('hillshade-dem')) {
+      this.map.addSource(
+        'hillshade-dem',
+        {
+          type: 'raster-dem',
+          url: tileJsonUrl,
+          tileSize: 256,
+          maxzoom: this.DEM_MAX_ZOOM,
+        } as any
+      );
+    }
 
-      if (!marker) {
-        const el = document.createElement('div');
-        el.className = 'truck-marker';
-        el.title = `${v.id} • ${v.task}`;
-
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.selectVehicle(v.id);
-        });
-
-        marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([v.position.lng, v.position.lat])
-          .addTo(this.map);
-
-        this.markers.set(v.id, marker);
-      } else {
-        marker.setLngLat([v.position.lng, v.position.lat]);
-      }
-
-      const el = marker.getElement();
-      el.setAttribute('data-status', v.status);
-      el.setAttribute('data-task', v.task);
-      el.title = `${v.id} • ${v.task} • ${v.speedKph.toFixed(1)} kph`;
+    if (!this.map.getLayer('hillshade-layer')) {
+      this.map.addLayer(
+        {
+          id: 'hillshade-layer',
+          type: 'hillshade',
+          source: 'hillshade-dem',
+          layout: { visibility: 'none' },
+        } as any
+      );
     }
   }
 
-  private clearMarkers(): void {
-    for (const m of this.markers.values()) m.remove();
-    this.markers.clear();
+  private applyTerrainState(): void {
+    if (!this.map) return;
+
+    if (this.layers.pits3d) {
+      this.map.setTerrain(
+        {
+          source: 'terrain-dem',
+          exaggeration: this.TERRAIN_EXAGGERATION,
+        } as any
+      );
+    } else {
+      this.map.setTerrain(null as any);
+    }
   }
 
-  private vehicleToMapView(v: VehicleState): VehicleMapVM {
-    const ll = worldToLngLat(v.x, v.y);
-    return {
-      id: v.id,
-      position: { lat: ll.lat, lng: ll.lng },
-      headingDeg: v.headingDeg,
-      speedKph: v.speedMps * 3.6,
-      status: v.status,
-      task: v.task,
-      payloadTons: v.payloadTons,
-      fuelPct: v.fuelPct,
-      healthPct: v.healthPct,
+  private applyHillshadeState(): void {
+    if (!this.map) return;
+    this.toggleVisibility('hillshade-layer', this.layers.hillshade);
+  }
+
+  // -----------------------------------------
+  // Mine geometry (pits/dumps/infra/route)
+  // -----------------------------------------
+  private buildMineGeometry(center: LngLat): void {
+    const [cx, cy] = center;
+    const o = (dx: number, dy: number): LngLat => [cx + dx, cy + dy];
+
+    // Pits
+    const pitA = this.makeOvalPolygon(o(-0.030, 0.010), 0.010, 0.006, 18);
+    const pitB = this.makeOvalPolygon(o(-0.010, -0.012), 0.008, 0.005, 18);
+    const pitC = this.makeOvalPolygon(o(0.018, 0.014), 0.009, 0.006, 18);
+
+    // Dumps / ROM pads
+    const dumpNorth = this.makePadPolygon(o(0.030, 0.020), 0.012, 0.008, 15);
+    const dumpSouth = this.makePadPolygon(o(0.026, -0.020), 0.014, 0.009, 15);
+
+    // Infrastructure points
+    const infra: { name: string; kind: string; coord: LngLat }[] = [
+      { name: 'Workshop', kind: 'workshop', coord: o(0.005, -0.002) },
+      { name: 'Fuel Bay', kind: 'fuel', coord: o(0.010, -0.004) },
+      { name: 'Weighbridge', kind: 'weigh', coord: o(0.012, -0.001) },
+      { name: 'Crusher', kind: 'crusher', coord: o(0.020, 0.002) },
+      { name: 'Substation', kind: 'power', coord: o(0.016, -0.010) },
+      { name: 'Camp', kind: 'camp', coord: o(-0.020, -0.022) },
+    ];
+
+    // Stop zones
+    this.pitStops = [
+      { name: 'Pit A', center: o(-0.030, 0.010), radiusM: 180, dwellS: [18, 35] },
+      { name: 'Pit B', center: o(-0.010, -0.012), radiusM: 160, dwellS: [15, 30] },
+      { name: 'Pit C', center: o(0.018, 0.014), radiusM: 170, dwellS: [16, 32] },
+    ];
+
+    this.dumpStops = [
+      { name: 'Dump North', center: o(0.030, 0.020), radiusM: 220, dwellS: [12, 24] },
+      { name: 'Dump South', center: o(0.026, -0.020), radiusM: 240, dwellS: [12, 26] },
+    ];
+
+    // Haul loop (interesting path across pits/dumps/infrastructure)
+    const loop: LngLat[] = [
+      o(-0.040, 0.012),
+      o(-0.034, 0.012),
+      o(-0.030, 0.010), // Pit A
+      o(-0.022, 0.006),
+      o(-0.012, 0.004),
+      o(0.002, 0.003),
+      o(0.012, 0.002),  // Weighbridge
+      o(0.020, 0.002),  // Crusher
+      o(0.026, 0.010),
+      o(0.030, 0.020),  // Dump North
+      o(0.026, 0.022),
+      o(0.020, 0.018),
+      o(0.018, 0.014),  // Pit C
+      o(0.014, 0.008),
+      o(0.010, 0.002),
+      o(0.012, -0.006),
+      o(0.018, -0.014),
+      o(0.026, -0.020), // Dump South
+      o(0.018, -0.022),
+      o(0.010, -0.018),
+      o(-0.002, -0.016),
+      o(-0.010, -0.012), // Pit B
+      o(-0.012, -0.006),
+      o(-0.006, -0.004),
+      o(0.005, -0.002),  // Workshop
+      o(-0.010, 0.004),
+      o(-0.022, 0.010),
+      o(-0.034, 0.014),
+      o(-0.040, 0.012),
+    ];
+
+    this.routeCoords = loop;
+    this.recomputeRouteDistances();
+    this.initTrucks(10);
+
+    (this as any)._mineGeojson = {
+      pits: this.fc([
+        this.featurePoly(pitA, { name: 'Pit A', kind: 'pit', height: 18 }),
+        this.featurePoly(pitB, { name: 'Pit B', kind: 'pit', height: 14 }),
+        this.featurePoly(pitC, { name: 'Pit C', kind: 'pit', height: 16 }),
+      ]),
+      dumps: this.fc([
+        this.featurePoly(dumpNorth, { name: 'Dump North', kind: 'dump', height: 10 }),
+        this.featurePoly(dumpSouth, { name: 'Dump South', kind: 'dump', height: 12 }),
+      ]),
+      infra: this.fc(infra.map(p => this.featurePoint(p.coord, { name: p.name, kind: p.kind }))),
+      route: this.fc([this.featureLine(this.routeCoords, { name: 'Haul Loop' })]),
     };
+  }
+
+  private ensureMineSourcesAndLayersExist(): void {
+    if (!this.map) return;
+
+    const mine = (this as any)._mineGeojson;
+    if (!mine) return;
+
+    this.upsertGeoJsonSource(this.SRC_PITS, mine.pits);
+    this.upsertGeoJsonSource(this.SRC_DUMPS, mine.dumps);
+    this.upsertGeoJsonSource(this.SRC_INFRA, mine.infra);
+    this.upsertGeoJsonSource(this.SRC_ROUTE, mine.route);
+
+    // Route
+    if (!this.map.getLayer(this.LYR_ROUTE)) {
+      this.map.addLayer({
+        id: this.LYR_ROUTE,
+        type: 'line',
+        source: this.SRC_ROUTE,
+        layout: {
+          visibility: 'visible',
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-width': 4,
+          'line-opacity': 0.9,
+        },
+      } as any);
+    }
+
+    // Pits/Dumps fills
+    if (!this.map.getLayer(this.LYR_PITS_FILL)) {
+      this.map.addLayer({
+        id: this.LYR_PITS_FILL,
+        type: 'fill',
+        source: this.SRC_PITS,
+        layout: { visibility: 'visible' },
+        paint: { 'fill-opacity': 0.28 },
+      } as any);
+    }
+
+    if (!this.map.getLayer(this.LYR_DUMPS_FILL)) {
+      this.map.addLayer({
+        id: this.LYR_DUMPS_FILL,
+        type: 'fill',
+        source: this.SRC_DUMPS,
+        layout: { visibility: 'visible' },
+        paint: { 'fill-opacity': 0.22 },
+      } as any);
+    }
+
+    // 3D extrusions (visibility controlled by pits3d)
+    if (!this.map.getLayer(this.LYR_PITS_3D)) {
+      this.map.addLayer({
+        id: this.LYR_PITS_3D,
+        type: 'fill-extrusion',
+        source: this.SRC_PITS,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-extrusion-height': ['get', 'height'],
+          'fill-extrusion-opacity': 0.55,
+        },
+      } as any);
+    }
+
+    if (!this.map.getLayer(this.LYR_DUMPS_3D)) {
+      this.map.addLayer({
+        id: this.LYR_DUMPS_3D,
+        type: 'fill-extrusion',
+        source: this.SRC_DUMPS,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-extrusion-height': ['get', 'height'],
+          'fill-extrusion-opacity': 0.5,
+        },
+      } as any);
+    }
+
+    // Infrastructure points
+    if (!this.map.getLayer(this.LYR_INFRA)) {
+      this.map.addLayer({
+        id: this.LYR_INFRA,
+        type: 'circle',
+        source: this.SRC_INFRA,
+        layout: { visibility: 'visible' },
+        paint: {
+          'circle-radius': 6,
+          'circle-opacity': 0.9,
+        },
+      } as any);
+    }
+
+    // Infrastructure labels (we’ll force paint via applyLabelAndMarkerStyles())
+    if (!this.map.getLayer(this.LYR_INFRA_LABELS)) {
+      this.map.addLayer({
+        id: this.LYR_INFRA_LABELS,
+        type: 'symbol',
+        source: this.SRC_INFRA,
+        layout: {
+          visibility: 'visible',
+          'text-field': ['get', 'name'],
+          'text-size': 13,
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+        },
+        paint: {
+          'text-opacity': 1,
+        },
+      } as any);
+    }
+  }
+
+  private applyRouteState(): void {
+    if (!this.map) return;
+    this.toggleVisibility(this.LYR_ROUTE, this.layers.haul);
+  }
+
+  private applyPitDump3DState(): void {
+    if (!this.map) return;
+    const show3d = this.layers.pits3d;
+    this.toggleVisibility(this.LYR_PITS_3D, show3d);
+    this.toggleVisibility(this.LYR_DUMPS_3D, show3d);
+  }
+
+  private upsertGeoJsonSource(id: string, data: any): void {
+    if (!this.map) return;
+
+    if (!this.map.getSource(id)) {
+      this.map.addSource(id, { type: 'geojson', data } as any);
+    } else {
+      const s = this.map.getSource(id) as any;
+      if (s?.setData) s.setData(data);
+    }
+  }
+
+  // -----------------------------------------
+  // Trucks (with FAULT coloring)
+  // -----------------------------------------
+  private initTrucks(count: number): void {
+    this.trucks = [];
+    if (this.routeLenM <= 0) return;
+
+    for (let i = 0; i < count; i++) {
+      const frac = i / count;
+      const progressM = frac * this.routeLenM;
+      const speedMps = 6.5 + (i % 5) * 1.2;
+
+      this.trucks.push({
+        id: `T-${String(i + 1).padStart(2, '0')}`,
+        progressM,
+        speedMps,
+        mode: 'HAULING',
+        dwellLeftS: 0,
+        lastHeadingDeg: 0,
+      });
+    }
+  }
+
+  private ensureTruckSourceAndLayersExist(): void {
+    if (!this.map) return;
+
+    if (!this.map.getSource(this.SRC_TRUCKS)) {
+      this.map.addSource(this.SRC_TRUCKS, {
+        type: 'geojson',
+        data: this.buildTrucksGeoJson(),
+      } as any);
+    } else {
+      (this.map.getSource(this.SRC_TRUCKS) as any).setData(this.buildTrucksGeoJson());
+    }
+
+    // Truck circles (we’ll force paint via applyLabelAndMarkerStyles())
+    if (!this.map.getLayer(this.LYR_TRUCKS)) {
+      this.map.addLayer({
+        id: this.LYR_TRUCKS,
+        type: 'circle',
+        source: this.SRC_TRUCKS,
+        layout: { visibility: 'visible' },
+        paint: {
+          'circle-radius': 6,
+          'circle-opacity': 0.95,
+        },
+      } as any);
+    }
+
+    // Truck labels (we’ll force paint via applyLabelAndMarkerStyles())
+    if (!this.map.getLayer(this.LYR_TRUCKS_LABELS)) {
+      this.map.addLayer({
+        id: this.LYR_TRUCKS_LABELS,
+        type: 'symbol',
+        source: this.SRC_TRUCKS,
+        layout: {
+          visibility: 'visible',
+          'text-field': ['get', 'label'],
+          'text-size': 13,
+          'text-offset': [0, 1.3],
+          'text-anchor': 'top',
+        },
+        paint: {
+          'text-opacity': 1,
+        },
+      } as any);
+    }
+  }
+
+  private applyTrucksState(): void {
+    if (!this.map) return;
+
+    const visible = this.layers.trucks;
+    this.toggleVisibility(this.LYR_TRUCKS, visible);
+    this.toggleVisibility(this.LYR_TRUCKS_LABELS, visible);
+
+    if (visible) this.startAnimation();
+    else this.stopAnimation();
+  }
+
+  private startAnimation(): void {
+    if (this.animationHandle != null) return;
+
+    this.lastTickMs = performance.now();
+
+    const tick = (now: number) => {
+      this.animationHandle = requestAnimationFrame(tick);
+      if (!this.layers.trucks) return;
+
+      const dtS = Math.min(0.1, Math.max(0, (now - this.lastTickMs) / 1000));
+      this.lastTickMs = now;
+
+      this.stepSimulation(dtS);
+      this.pushTruckGeoJson();
+
+      // keep styles enforced (cheap) in case of HMR / style reload quirks
+      this.applyLabelAndMarkerStyles();
+    };
+
+    this.animationHandle = requestAnimationFrame(tick);
+  }
+
+  private stopAnimation(): void {
+    if (this.animationHandle != null) {
+      cancelAnimationFrame(this.animationHandle);
+      this.animationHandle = null;
+    }
+  }
+
+  private stepSimulation(dtS: number): void {
+    if (this.routeLenM <= 0) return;
+
+    const statusById = this.getFleetStatusById();
+
+    for (const t of this.trucks) {
+      const fleetStatus = statusById.get(t.id);
+
+      // If operator sets FAULT/PAUSED from Fleet UI, freeze this truck in place
+      if (fleetStatus === 'FAULT' || fleetStatus === 'PAUSED') {
+        t.mode = 'IDLE';
+        t.dwellLeftS = 0;
+        t.targetStop = undefined;
+        continue;
+      }
+
+      if (t.dwellLeftS > 0) {
+        t.dwellLeftS = Math.max(0, t.dwellLeftS - dtS);
+        t.mode = t.targetStop === 'PIT' ? 'LOADING' : 'DUMPING';
+        if (t.dwellLeftS === 0) {
+          t.mode = 'HAULING';
+          t.targetStop = undefined;
+        }
+        continue;
+      }
+
+      t.mode = 'HAULING';
+      t.progressM = (t.progressM + t.speedMps * dtS) % this.routeLenM;
+
+      const pos = this.sampleRoutePosition(t.progressM);
+
+      const nearPit = this.findStopNear(pos, this.pitStops);
+      if (nearPit) {
+        t.dwellLeftS = this.randBetween(nearPit.dwellS[0], nearPit.dwellS[1]);
+        t.targetStop = 'PIT';
+        continue;
+      }
+
+      const nearDump = this.findStopNear(pos, this.dumpStops);
+      if (nearDump) {
+        t.dwellLeftS = this.randBetween(nearDump.dwellS[0], nearDump.dwellS[1]);
+        t.targetStop = 'DUMP';
+        continue;
+      }
+    }
+  }
+
+  // ✅ Supports fleet rows that use `status` OR `state` OR `mode`
+  private getFleetStatusById(): Map<string, string> {
+    const m = new Map<string, string>();
+    try {
+      const list = this.fleet.vehicles() as any[];
+      for (const v of list) {
+        const raw = v.status ?? v.state ?? v.mode ?? 'HAULING';
+        m.set(v.id, String(raw).toUpperCase());
+      }
+    } catch {
+      // ignore
+    }
+    return m;
+  }
+
+  private findStopNear(
+    pos: LngLat,
+    stops: { name: string; center: LngLat; radiusM: number; dwellS: [number, number] }[]
+  ) {
+    for (const s of stops) {
+      const d = this.haversineM(pos, s.center);
+      if (d <= s.radiusM) return s;
+    }
+    return null;
+  }
+
+  private pushTruckGeoJson(): void {
+    if (!this.map) return;
+    const src = this.map.getSource(this.SRC_TRUCKS) as any;
+    if (src?.setData) src.setData(this.buildTrucksGeoJson());
+  }
+
+  private buildTrucksGeoJson(): any {
+    const statusById = this.getFleetStatusById();
+
+    const features = this.trucks.map((t) => {
+      const status = statusById.get(t.id) ?? 'HAULING';
+      const isFault = status === 'FAULT';
+      const isPaused = status === 'PAUSED';
+
+      const p = this.sampleRoutePosition(t.progressM);
+      const heading = this.sampleHeadingDeg(t.progressM);
+      t.lastHeadingDeg = heading;
+
+      const modeLabel = isFault ? 'FAULT' : isPaused ? 'PAUSED' : t.mode;
+      const label = `${t.id} (${modeLabel})`;
+
+      const speedKph = isFault || isPaused ? 0 : Math.round(t.speedMps * 3.6);
+
+      return this.featurePoint(p, {
+        id: t.id,
+        label,
+        status, // ✅ used by paint expressions
+        speedKph,
+        headingDeg: Math.round(heading),
+      });
+    });
+
+    return this.fc(features);
+  }
+
+  // -----------------------------------------
+  // ✅ FORCE styles so colors ALWAYS apply
+  //   🚛 trucks blue, ⚠ fault red, 🏗 infra amber
+  // -----------------------------------------
+  private applyLabelAndMarkerStyles(): void {
+    if (!this.map) return;
+
+    // 🏗 Infra labels = amber
+    if (this.map.getLayer(this.LYR_INFRA_LABELS)) {
+      this.map.setPaintProperty(this.LYR_INFRA_LABELS, 'text-color', '#f59e0b');
+      this.map.setPaintProperty(this.LYR_INFRA_LABELS, 'text-opacity', 0.98);
+      this.map.setPaintProperty(this.LYR_INFRA_LABELS, 'text-halo-color', 'rgba(0,0,0,0.85)');
+      this.map.setPaintProperty(this.LYR_INFRA_LABELS, 'text-halo-width', 1.8);
+      this.map.setPaintProperty(this.LYR_INFRA_LABELS, 'text-halo-blur', 0.5);
+    }
+
+    // 🚛 Truck circles = blue, fault = red
+    if (this.map.getLayer(this.LYR_TRUCKS)) {
+      this.map.setPaintProperty(this.LYR_TRUCKS, 'circle-color', [
+        'case',
+        ['==', ['get', 'status'], 'FAULT'],
+        '#ef4444', // red
+        '#60a5fa', // blue
+      ]);
+      this.map.setPaintProperty(this.LYR_TRUCKS, 'circle-stroke-width', 1.2);
+      this.map.setPaintProperty(this.LYR_TRUCKS, 'circle-stroke-color', 'rgba(0,0,0,0.55)');
+    }
+
+    // 🚛 Truck labels = blue, fault = red
+    if (this.map.getLayer(this.LYR_TRUCKS_LABELS)) {
+      this.map.setPaintProperty(this.LYR_TRUCKS_LABELS, 'text-color', [
+        'case',
+        ['==', ['get', 'status'], 'FAULT'],
+        '#ef4444', // red
+        '#60a5fa', // blue
+      ]);
+      this.map.setPaintProperty(this.LYR_TRUCKS_LABELS, 'text-opacity', 0.99);
+      this.map.setPaintProperty(this.LYR_TRUCKS_LABELS, 'text-halo-color', 'rgba(0,0,0,0.9)');
+      this.map.setPaintProperty(this.LYR_TRUCKS_LABELS, 'text-halo-width', 2.0);
+      this.map.setPaintProperty(this.LYR_TRUCKS_LABELS, 'text-halo-blur', 0.6);
+    }
+  }
+
+  // -----------------------------------------
+  // Map interactions
+  // -----------------------------------------
+  private attachInteractions(): void {
+    if (!this.map) return;
+
+    this.map.on('click', this.LYR_TRUCKS, (e: any) => {
+      const f = e?.features?.[0];
+      if (!f) return;
+
+      const props = f.properties || {};
+      const lngLat = e.lngLat;
+
+      const html = `
+        <div style="font-weight:700;margin-bottom:6px;">Truck ${props.id ?? ''}</div>
+        <div><b>Status:</b> ${props.status ?? ''}</div>
+        <div><b>Speed:</b> ${props.speedKph ?? ''} km/h</div>
+        <div><b>Heading:</b> ${props.headingDeg ?? ''}°</div>
+      `;
+
+      new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+        .setLngLat(lngLat)
+        .setHTML(html)
+        .addTo(this.map);
+    });
+
+    this.map.on('mouseenter', this.LYR_TRUCKS, () => {
+      this.map.getCanvas().style.cursor = 'pointer';
+    });
+
+    this.map.on('mouseleave', this.LYR_TRUCKS, () => {
+      this.map.getCanvas().style.cursor = '';
+    });
+  }
+
+  // -----------------------------------------
+  // Route sampling
+  // -----------------------------------------
+  private recomputeRouteDistances(): void {
+    this.routeCumDistM = [];
+    this.routeLenM = 0;
+
+    if (this.routeCoords.length < 2) return;
+
+    this.routeCumDistM.push(0);
+    for (let i = 1; i < this.routeCoords.length; i++) {
+      const seg = this.haversineM(this.routeCoords[i - 1], this.routeCoords[i]);
+      this.routeLenM += seg;
+      this.routeCumDistM.push(this.routeLenM);
+    }
+  }
+
+  private sampleRoutePosition(progressM: number): LngLat {
+    const coords = this.routeCoords;
+    const cum = this.routeCumDistM;
+
+    if (coords.length < 2 || this.routeLenM <= 0) return coords[0] ?? [0, 0];
+
+    let i = 1;
+    while (i < cum.length && cum[i] < progressM) i++;
+
+    if (i >= cum.length) return coords[coords.length - 1];
+
+    const prevD = cum[i - 1];
+    const nextD = cum[i];
+    const t = nextD === prevD ? 0 : (progressM - prevD) / (nextD - prevD);
+
+    const a = coords[i - 1];
+    const b = coords[i];
+
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+
+  private sampleHeadingDeg(progressM: number): number {
+    const ahead = (progressM + 8) % Math.max(1, this.routeLenM);
+    const p1 = this.sampleRoutePosition(progressM);
+    const p2 = this.sampleRoutePosition(ahead);
+
+    const dy = p2[1] - p1[1];
+    const dx = p2[0] - p1[0];
+    const rad = Math.atan2(dy, dx);
+    let deg = (rad * 180) / Math.PI;
+    if (deg < 0) deg += 360;
+    return deg;
+  }
+
+  // -----------------------------------------
+  // Geo helpers
+  // -----------------------------------------
+  private fc(features: any[]) {
+    return { type: 'FeatureCollection', features };
+  }
+
+  private featurePoint(coord: LngLat, properties: Record<string, any>) {
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: coord },
+      properties,
+    };
+  }
+
+  private featureLine(coords: LngLat[], properties: Record<string, any>) {
+    return {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties,
+    };
+  }
+
+  private featurePoly(coords: LngLat[], properties: Record<string, any>) {
+    return {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [coords] },
+      properties,
+    };
+  }
+
+  private toggleVisibility(layerId: string, visible: boolean): void {
+    if (!this.map || !this.map.getLayer(layerId)) return;
+    this.map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+  }
+
+  private makeOvalPolygon(center: LngLat, rx: number, ry: number, steps: number): LngLat[] {
+    const [cx, cy] = center;
+    const pts: LngLat[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+    }
+    return pts;
+  }
+
+  private makePadPolygon(center: LngLat, w: number, h: number, steps: number): LngLat[] {
+    const [cx, cy] = center;
+    const pts: LngLat[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const x = Math.sign(ca) * Math.pow(Math.abs(ca), 0.7) * (w / 2);
+      const y = Math.sign(sa) * Math.pow(Math.abs(sa), 0.7) * (h / 2);
+      pts.push([cx + x, cy + y]);
+    }
+    return pts;
+  }
+
+  private haversineM(a: LngLat, b: LngLat): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+
+    const lat1 = toRad(a[1]);
+    const lat2 = toRad(b[1]);
+    const dLat = toRad(b[1] - a[1]);
+    const dLon = toRad(b[0] - a[0]);
+
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLon / 2);
+
+    const h = s1 * s1 + Math.cos(lat1) * Math.cos(lat2) * s2 * s2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  private randBetween(min: number, max: number): number {
+    return min + Math.random() * (max - min);
   }
 }

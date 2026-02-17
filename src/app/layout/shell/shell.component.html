@@ -1,42 +1,22 @@
-<div class="app">
-  <!-- TOP BAR -->
-  <header class="topbar">
+<div class="shell">
+  <header class="header">
     <div class="brand">
-      <div class="dot"></div>
-      <div>
-        <div class="title">AHS POC</div>
-        <div class="subtitle">
-          Autonomous Haulage System — Command & Control
-        </div>
-      </div>
+      Autonomous Haulage System – POC
     </div>
 
     <nav class="nav">
       <a
-        routerLink="/dashboard"
+        *ngFor="let item of navItems"
+        [routerLink]="item.path"
         routerLinkActive="active"
-        [routerLinkActiveOptions]="{ exact: true }"
-        >Dashboard</a
+        class="nav-link"
       >
-
-      <a routerLink="/fleet" routerLinkActive="active">Fleet</a>
-
-      <a routerLink="/map" routerLinkActive="active">Map</a>
-
-      <a routerLink="/telemetry" routerLinkActive="active">Telemetry</a>
-
-      <a routerLink="/command" routerLinkActive="active">Command</a>
+        {{ item.label }}
+      </a>
     </nav>
   </header>
 
-  <!-- MAIN CONTENT -->
   <main class="content">
     <router-outlet></router-outlet>
   </main>
-
-  <!-- FOOTER -->
-  <footer class="footer">
-    <span>{{ version }}</span>
-    <span>Angular 21 Standalone • .NET Backend Ready • SignalR Planned</span>
-  </footer>
 </div>

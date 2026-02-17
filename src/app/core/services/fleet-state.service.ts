@@ -1,381 +1,304 @@
-import { Injectable, signal, computed } from '@angular/core';
+// src/app/core/services/fleet-state.service.ts
 
-export type CoreVehicleStatus =
-  | 'IDLE'
-  | 'DISPATCHED'
-  | 'LOADING'
-  | 'HAULING'
-  | 'DUMPING'
-  | 'RETURNING'
-  | 'REFUEL'
-  | 'MAINT'
-  | 'FAULT';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
+import { FleetVehicle, VehicleStatus } from '../models/fleet.models';
 
-export type VehicleStatus = CoreVehicleStatus | 'PAUSED';
+// ✅ Components import FleetVehicle from this service file in a few places.
+// Re-export it so those imports compile without changing the components.
+export type { FleetVehicle } from '../models/fleet.models';
 
-export interface VehicleTelemetry {
-  speedKph: number;
-  payloadTons: number;
-  fuelPct: number;
-  engineTempC: number;
-  healthPct: number;
-}
-
-export interface FleetVehicle {
-  id: string;
-  name: string;
-  status: VehicleStatus;
-  lastUpdateIso: string;
-  telemetry: VehicleTelemetry;
-}
-
-type SimMeta = {
-  dwellUntilMs: number;
-  phaseOffsetMs: number;
+type FleetKpis = {
+  total: number;
+  pausedOrFault: number;
+  active: number;
+  hauling: number;
+  returning: number;
+  refuel: number;
+  maint: number;
+  fault: number;
 };
 
 @Injectable({ providedIn: 'root' })
 export class FleetStateService {
-  private simHandle: any = null;
+  private readonly destroyRef = inject(DestroyRef);
 
-  private readonly _vehicles = signal<FleetVehicle[]>([]);
-  private readonly simMeta = new globalThis.Map<string, SimMeta>();
+  private readonly _vehicles = signal<FleetVehicle[]>(this.createInitialFleet(10));
+  readonly vehicles = computed(() => this._vehicles());
 
-  readonly vehiclesSig = computed(() => this._vehicles());
-  readonly vehicleIdsSig = computed(() => this._vehicles().map(v => v.id));
-
-  vehicles(): FleetVehicle[] {
-    return this._vehicles();
-  }
+  // ---- API expected by components ----
 
   vehicleIds(): string[] {
     return this._vehicles().map(v => v.id);
   }
 
-  readonly kpis = computed(() => {
+  readonly kpis = computed<FleetKpis>(() => {
     const list = this._vehicles();
+    const by = (s: VehicleStatus) => list.filter(v => v.status === s).length;
+
+    const pausedOrFault = list.filter(v => v.status === 'PAUSED' || v.status === 'FAULT').length;
+    const active = list.filter(
+      v => v.status !== 'IDLE' && v.status !== 'PAUSED' && v.status !== 'FAULT'
+    ).length;
+
     return {
       total: list.length,
-      hauling: list.filter(v => v.status === 'HAULING').length,
-      returning: list.filter(v => v.status === 'RETURNING').length,
-      loading: list.filter(v => v.status === 'LOADING').length,
-      dumping: list.filter(v => v.status === 'DUMPING').length,
-      refuel: list.filter(v => v.status === 'REFUEL').length,
-      maint: list.filter(v => v.status === 'MAINT').length,
-      faults: list.filter(v => v.status === 'FAULT').length,
-      paused: list.filter(v => v.status === 'PAUSED').length,
+      pausedOrFault,
+      active,
+      hauling: by('HAULING'),
+      returning: by('RETURNING'),
+      refuel: by('REFUEL'),
+      maint: by('MAINT'),
+      fault: by('FAULT'),
     };
   });
 
-  // ---------------------------
-  // Simulation Control
-  // ---------------------------
+  startSimulation(): void {
+    if (this._simTimer) return;
+    this._simTimer = window.setInterval(() => this.tick(), 1000);
 
-  startSimulation(count = 10) {
-    if (this.simHandle) return;
-
-    const initial: FleetVehicle[] = Array.from({ length: count }).map((_, i) =>
-      this.makeVehicle(`T-${(i + 1).toString().padStart(2, '0')}`),
-    );
-
-    this._vehicles.set(initial);
-
-    // 5Hz tick
-    this.simHandle = setInterval(() => this.tick(), 200);
+    this.destroyRef.onDestroy(() => {
+      if (this._simTimer) window.clearInterval(this._simTimer);
+      this._simTimer = undefined;
+    });
   }
 
-  stopSimulation() {
-    if (this.simHandle) {
-      clearInterval(this.simHandle);
-      this.simHandle = null;
-    }
+  dispatchVehicle(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status === 'PAUSED' || v.status === 'FAULT') return v;
+      return this.withStatus(v, 'HAULING');
+    });
   }
 
-  // ---------------------------
-  // Operator Controls (public API)
-  // ---------------------------
-
-  pauseVehicle(id: string) {
-    this.setStatus(id, 'PAUSED');
+  sendToFuel(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status === 'PAUSED' || v.status === 'FAULT') return v;
+      return this.withStatus(v, 'REFUEL');
+    });
   }
 
-  resumeVehicle(id: string) {
-    // resume to IDLE (dispatch will pick up next tick)
-    this.setStatus(id, 'IDLE');
+  sendToMaint(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status === 'PAUSED') return v;
+      return this.withStatus(v, 'MAINT');
+    });
   }
 
-  raiseFault(id: string) {
-    this.setStatus(id, 'FAULT');
+  pauseVehicle(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status === 'FAULT') return v;
+      if (v.status === 'PAUSED') return v;
+      return {
+        ...v,
+        prevStatus: v.status,
+        status: 'PAUSED',
+        state: 'PAUSED',
+        lastUpdateIso: new Date().toISOString(),
+      };
+    });
   }
 
-  clearFault(id: string) {
-    this.setStatus(id, 'IDLE');
+  resume(id: string): void {
+    this.resumeVehicle(id);
   }
 
-  stopAll() {
+  resumeVehicle(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status !== 'PAUSED') return v;
+      const next: VehicleStatus = v.prevStatus && v.prevStatus !== 'PAUSED' ? v.prevStatus : 'IDLE';
+      return {
+        ...v,
+        prevStatus: undefined,
+        status: next,
+        state: next,
+        lastUpdateIso: new Date().toISOString(),
+      };
+    });
+  }
+
+  stopAll(): void {
     this._vehicles.update(list =>
-      list.map(v => (v.status === 'PAUSED' ? v : { ...v, status: 'PAUSED', lastUpdateIso: new Date().toISOString() })),
+      list.map(v => {
+        if (v.status === 'FAULT') return v;
+        if (v.status === 'PAUSED') return { ...v, prevStatus: 'IDLE' };
+        return this.withStatus(v, 'IDLE');
+      })
     );
-    // clear dwell so they react immediately
-    for (const m of this.simMeta.values()) m.dwellUntilMs = 0;
   }
 
-  resumeAll() {
-    this._vehicles.update(list =>
-      list.map(v => ({ ...v, status: 'IDLE', lastUpdateIso: new Date().toISOString() })),
-    );
-    for (const m of this.simMeta.values()) m.dwellUntilMs = 0;
+  resumeAll(): void {
+    const ids = this.vehicleIds();
+    for (const id of ids) this.resumeVehicle(id);
   }
 
-  dispatchVehicle(id: string) {
-    // operator dispatch: start next cycle immediately
-    this.setCoreStatus(id, 'DISPATCHED');
+  raiseFault(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status === 'FAULT') return v;
+      return {
+        ...v,
+        prevStatus: v.status,
+        status: 'FAULT',
+        state: 'FAULT',
+        lastUpdateIso: new Date().toISOString(),
+        telemetry: {
+          ...v.telemetry,
+          speedKph: 0,
+          engineTempC: Math.max(v.telemetry.engineTempC, 110),
+          healthPct: Math.max(0, v.telemetry.healthPct - 10),
+        },
+      };
+    });
   }
 
-  sendToFuel(id: string) {
-    // operator directive: go refuel now
-    this.setCoreStatus(id, 'REFUEL');
+  // ✅ NEW: required by command + fleet components
+  clearFault(id: string): void {
+    this.updateVehicle(id, v => {
+      if (v.status !== 'FAULT') return v;
+
+      // After clearing, resume previous non-fault state or go IDLE
+      const next: VehicleStatus =
+        v.prevStatus && v.prevStatus !== 'FAULT' ? v.prevStatus : 'IDLE';
+
+      // Give it a small “recovery boost”
+      return {
+        ...v,
+        prevStatus: undefined,
+        status: next,
+        state: next,
+        lastUpdateIso: new Date().toISOString(),
+        telemetry: {
+          ...v.telemetry,
+          engineTempC: clamp(v.telemetry.engineTempC - 5, 60, 125),
+          healthPct: clamp(v.telemetry.healthPct + 5, 0, 100),
+          speedKph: 0,
+        },
+      };
+    });
   }
 
-  sendToMaint(id: string) {
-    // operator directive: go maintenance now
-    this.setCoreStatus(id, 'MAINT');
-  }
+  // ---- Internal simulation loop ----
 
-  // ---------------------------
-  // Simulation Tick (Pilbara realism)
-  // ---------------------------
+  private _simTimer: number | undefined;
 
-  private tick() {
-    const now = Date.now();
+  private tick(): void {
+    const nowIso = new Date().toISOString();
 
     this._vehicles.update(list =>
       list.map(v => {
-        if (v.status === 'PAUSED' || v.status === 'FAULT') return v;
-
-        const meta = this.getMeta(v.id);
-
-        if (meta.dwellUntilMs > now) {
-          return {
-            ...v,
-            lastUpdateIso: new Date().toISOString(),
-            telemetry: this.telemetryDuringDwell(v.telemetry, v.status as CoreVehicleStatus),
-          };
+        if (v.status === 'PAUSED' || v.status === 'FAULT') {
+          return { ...v, lastUpdateIso: nowIso };
         }
 
-        const next = this.nextStatusPilbara(v.status as CoreVehicleStatus, v.telemetry);
+        const nextStatus = this.advanceStatus(v.status, v.telemetry);
 
-        const dwellMs = this.dwellFor(next, meta.phaseOffsetMs);
-        if (dwellMs > 0) meta.dwellUntilMs = now + dwellMs;
+        const speed = this.targetSpeed(nextStatus);
+        const fuelDrain = nextStatus === 'HAULING' || nextStatus === 'RETURNING' ? 0.6 : 0.2;
+        const heatBump = nextStatus === 'HAULING' ? 1.2 : nextStatus === 'REFUEL' ? -1.5 : 0.2;
+
+        const fuelPct = clamp(v.telemetry.fuelPct - fuelDrain, 0, 100);
+        const healthPct = clamp(v.telemetry.healthPct - (nextStatus === 'MAINT' ? -0.8 : 0.05), 0, 100);
+        const engineTempC = clamp(v.telemetry.engineTempC + heatBump, 60, 125);
+
+        const finalStatus: VehicleStatus =
+          fuelPct <= 12 && nextStatus !== 'REFUEL' && nextStatus !== 'MAINT'
+            ? 'REFUEL'
+            : nextStatus;
 
         return {
           ...v,
-          status: next,
-          lastUpdateIso: new Date().toISOString(),
-          telemetry: this.telemetryStep(v.telemetry, next),
+          status: finalStatus,
+          state: finalStatus,
+          lastUpdateIso: nowIso,
+          telemetry: {
+            ...v.telemetry,
+            speedKph: speed,
+            fuelPct,
+            healthPct,
+            engineTempC,
+            payloadTons: this.targetPayload(finalStatus, v.telemetry.payloadTons),
+          },
         };
-      }),
+      })
     );
   }
 
-  private nextStatusPilbara(current: CoreVehicleStatus, t: VehicleTelemetry): CoreVehicleStatus {
+  private advanceStatus(current: VehicleStatus, t: FleetVehicle['telemetry']): VehicleStatus {
+    if (current === 'REFUEL') return t.fuelPct >= 95 ? 'IDLE' : 'REFUEL';
+    if (current === 'MAINT') return t.healthPct >= 90 ? 'IDLE' : 'MAINT';
+
     switch (current) {
       case 'IDLE':
-        return 'DISPATCHED';
-
-      case 'DISPATCHED':
-        return 'LOADING';
-
-      case 'LOADING':
-        return t.payloadTons >= 210 ? 'HAULING' : 'LOADING';
-
+        return Math.random() < 0.35 ? 'HAULING' : 'IDLE';
       case 'HAULING':
-        return 'DUMPING';
-
+        return Math.random() < 0.25 ? 'DUMPING' : 'HAULING';
       case 'DUMPING':
-        return t.payloadTons <= 5 ? 'RETURNING' : 'DUMPING';
-
+        return Math.random() < 0.6 ? 'RETURNING' : 'DUMPING';
       case 'RETURNING':
-        if (t.fuelPct <= 18) return 'REFUEL';
-        if (t.healthPct <= 55) return 'MAINT';
-        return 'IDLE';
-
-      case 'REFUEL':
-        return t.fuelPct >= 92 ? 'IDLE' : 'REFUEL';
-
-      case 'MAINT':
-        return t.healthPct >= 88 ? 'IDLE' : 'MAINT';
-
+        return Math.random() < 0.25 ? 'LOADING' : 'RETURNING';
+      case 'LOADING':
+        return Math.random() < 0.6 ? 'HAULING' : 'LOADING';
       default:
-        return 'IDLE';
+        return current;
     }
   }
 
-  // ---------------------------
-  // Internal helpers
-  // ---------------------------
-
-  private setStatus(id: string, status: VehicleStatus) {
-    this._vehicles.update(list =>
-      list.map(v => (v.id === id ? { ...v, status, lastUpdateIso: new Date().toISOString() } : v)),
-    );
-    const meta = this.simMeta.get(id);
-    if (meta) meta.dwellUntilMs = 0;
-  }
-
-  private setCoreStatus(id: string, status: CoreVehicleStatus) {
-    this._vehicles.update(list =>
-      list.map(v => {
-        if (v.id !== id) return v;
-        // If fault/paused, operator override still applies
-        return { ...v, status, lastUpdateIso: new Date().toISOString() };
-      }),
-    );
-    const meta = this.simMeta.get(id);
-    if (meta) meta.dwellUntilMs = 0;
-  }
-
-  private makeVehicle(id: string): FleetVehicle {
-    this.simMeta.set(id, {
-      dwellUntilMs: 0,
-      phaseOffsetMs: Math.floor(hash01(id) * 1200),
-    });
-
-    return {
-      id,
-      name: `Autonomous Truck ${id}`,
-      status: 'IDLE',
-      lastUpdateIso: new Date().toISOString(),
-      telemetry: {
-        speedKph: 0,
-        payloadTons: 0,
-        fuelPct: 70 + hash01(id + '#fuel') * 25,
-        engineTempC: 78,
-        healthPct: 85 + hash01(id + '#health') * 12,
-      },
-    };
-  }
-
-  private getMeta(id: string): SimMeta {
-    const m = this.simMeta.get(id);
-    if (m) return m;
-
-    const fresh: SimMeta = { dwellUntilMs: 0, phaseOffsetMs: Math.floor(hash01(id) * 1200) };
-    this.simMeta.set(id, fresh);
-    return fresh;
-  }
-
-  private dwellFor(status: CoreVehicleStatus, offsetMs: number): number {
+  private targetSpeed(status: VehicleStatus): number {
     switch (status) {
+      case 'HAULING':
+        return 32 + Math.random() * 10;
+      case 'RETURNING':
+        return 36 + Math.random() * 12;
       case 'LOADING':
-        return 1200 + offsetMs;
       case 'DUMPING':
-        return 900 + offsetMs;
+        return 2 + Math.random() * 4;
       case 'REFUEL':
-        return 900 + offsetMs;
       case 'MAINT':
-        return 1200 + offsetMs;
+      case 'IDLE':
       default:
         return 0;
     }
   }
 
-  private telemetryDuringDwell(t: VehicleTelemetry, status: CoreVehicleStatus): VehicleTelemetry {
-    if (status === 'LOADING') {
-      return {
-        ...t,
-        speedKph: 0,
-        payloadTons: clamp(t.payloadTons + rand(6, 14), 0, 220),
-        fuelPct: clamp(t.fuelPct + rand(-0.08, 0.02), 0, 100),
-        engineTempC: clamp(t.engineTempC + rand(-0.2, 0.5), 60, 110),
-        healthPct: clamp(t.healthPct + rand(0.0, 0.03), 30, 100),
-      };
-    }
+  private targetPayload(status: VehicleStatus, current: number): number {
+    if (status === 'LOADING') return clamp(current + 8 + Math.random() * 6, 0, 290);
+    if (status === 'DUMPING') return clamp(current - (12 + Math.random() * 10), 0, 290);
+    return clamp(current + (Math.random() - 0.5) * 1.5, 0, 290);
+  }
 
-    if (status === 'DUMPING') {
-      return {
-        ...t,
-        speedKph: 0,
-        payloadTons: clamp(t.payloadTons + rand(-16, -7), 0, 220),
-        fuelPct: clamp(t.fuelPct + rand(-0.08, 0.02), 0, 100),
-        engineTempC: clamp(t.engineTempC + rand(-0.4, 0.4), 60, 110),
-        healthPct: clamp(t.healthPct + rand(0.0, 0.02), 30, 100),
-      };
-    }
-
-    if (status === 'REFUEL') {
-      return {
-        ...t,
-        speedKph: 0,
-        payloadTons: clamp(t.payloadTons, 0, 220),
-        fuelPct: clamp(t.fuelPct + rand(6, 10), 0, 100),
-        engineTempC: clamp(t.engineTempC + rand(-0.6, 0.2), 60, 110),
-        healthPct: clamp(t.healthPct + rand(0.01, 0.05), 30, 100),
-      };
-    }
-
-    if (status === 'MAINT') {
-      return {
-        ...t,
-        speedKph: 0,
-        payloadTons: clamp(t.payloadTons, 0, 220),
-        fuelPct: clamp(t.fuelPct + rand(-0.05, 0.05), 0, 100),
-        engineTempC: clamp(t.engineTempC + rand(-0.8, 0.2), 60, 110),
-        healthPct: clamp(t.healthPct + rand(3, 6), 30, 100),
-      };
-    }
-
+  private withStatus(v: FleetVehicle, status: VehicleStatus): FleetVehicle {
     return {
-      ...t,
-      speedKph: 0,
-      fuelPct: clamp(t.fuelPct + rand(-0.05, 0.03), 0, 100),
-      engineTempC: clamp(t.engineTempC + rand(-0.3, 0.4), 60, 110),
-      healthPct: clamp(t.healthPct + rand(0.0, 0.02), 30, 100),
+      ...v,
+      status,
+      state: status,
+      lastUpdateIso: new Date().toISOString(),
     };
   }
 
-  private telemetryStep(t: VehicleTelemetry, status: CoreVehicleStatus): VehicleTelemetry {
-    const moving = status === 'HAULING' || status === 'RETURNING' || status === 'DISPATCHED';
-    const loaded = t.payloadTons > 50;
+  private updateVehicle(id: string, fn: (v: FleetVehicle) => FleetVehicle): void {
+    this._vehicles.update(list => list.map(v => (v.id === id ? fn(v) : v)));
+  }
 
-    const targetSpeed =
-      status === 'HAULING' ? 34 :
-      status === 'RETURNING' ? 38 :
-      status === 'DISPATCHED' ? 12 :
-      0;
-
-    const speedKph = moving
-      ? clamp(t.speedKph + rand(-2, 6), 0, Math.max(10, targetSpeed + 10))
-      : 0;
-
-    const burn = moving ? (loaded ? 0.08 : 0.05) : 0.01;
-    const wear = moving ? (loaded ? 0.03 : 0.02) : 0.005;
-
-    return {
-      speedKph: targetSpeed === 0 ? 0 : clamp(speedKph, 0, 55),
-      payloadTons: t.payloadTons,
-      fuelPct: clamp(t.fuelPct - burn + rand(-0.02, 0.02), 0, 100),
-      engineTempC: clamp(
-        t.engineTempC + (moving ? rand(0.1, 0.6) : rand(-0.2, 0.2)) + (loaded ? 0.15 : 0),
-        60,
-        115,
-      ),
-      healthPct: clamp(t.healthPct - wear + rand(-0.01, 0.01), 30, 100),
-    };
+  private createInitialFleet(count: number): FleetVehicle[] {
+    const nowIso = new Date().toISOString();
+    return Array.from({ length: count }).map((_, i) => {
+      const id = `TRK-${String(i + 1).padStart(2, '0')}`;
+      return {
+        id,
+        name: `Truck ${i + 1}`,
+        status: 'IDLE',
+        state: 'IDLE',
+        lastUpdateIso: nowIso,
+        telemetry: {
+          speedKph: 0,
+          payloadTons: Math.random() * 30,
+          fuelPct: 60 + Math.random() * 40,
+          healthPct: 80 + Math.random() * 20,
+          engineTempC: 75 + Math.random() * 10,
+        },
+      };
+    });
   }
 }
 
-function rand(min: number, max: number) {
-  return Math.random() * (max - min) + min;
-}
-function clamp(n: number, min: number, max: number) {
+function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
-}
-function hash01(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return ((h >>> 0) % 10_000) / 10_000;
 }

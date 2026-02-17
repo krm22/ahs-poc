@@ -1,10 +1,3 @@
-
-@Injectable({
-  providedIn: 'root',
-})
-export class MockFleet {
-  
-}
 import { Injectable } from '@angular/core';
 
 export type VehicleState = 'IDLE' | 'DISPATCHED' | 'HAULING' | 'DUMPING' | 'STOPPED';
@@ -22,9 +15,13 @@ export interface Vehicle {
   updatedAtIso: string;
 }
 
+/**
+ * Legacy/placeholder mock fleet snapshot.
+ * (Not used by the Map simulation; safe to keep for future HTTP/WebSocket wiring.)
+ */
 @Injectable({ providedIn: 'root' })
 export class MockFleetService {
-  private vehicles: Vehicle[] = [
+  private readonly vehicles: Vehicle[] = [
     {
       id: 'TRK-001',
       name: 'Truck 001',
@@ -64,8 +61,6 @@ export class MockFleetService {
   ];
 
   list(): Vehicle[] {
-    // Phase 0: static mock snapshot.
-    // Phase 1: replace with HTTP/WebSocket from sim/api.
-    return this.vehicles.map(v => ({ ...v }));
+    return this.vehicles.map((v) => ({ ...v }));
   }
 }

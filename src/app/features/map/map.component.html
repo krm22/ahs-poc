@@ -1,67 +1,34 @@
-<div class="map-shell">
-  <div class="map" #mapEl></div>
+<div class="map-wrap">
+  <div #mapEl class="map-canvas"></div>
 
-  <aside class="panel">
-    <div class="row">
-      <div class="title">Map</div>
-      <div class="muted">{{ vehicles().length }} vehicles</div>
-    </div>
+  <div class="layers-panel">
+    <div class="panel-title">Whaleback (Newman) Layers</div>
 
-    <div class="muted status-line">
-      Map: <span class="pill">{{ mapStatus() }}</span>
-    </div>
+    <label>
+      <input type="checkbox" [checked]="layers.satellite" (change)="setLayer('satellite', $event)" />
+      Satellite
+    </label>
 
-    <div class="row">
-      <button type="button" (click)="seedVehicles(10)">Seed 10</button>
-      <button type="button" (click)="simRunning.set(!simRunning())">
-        {{ simRunning() ? 'Pause' : 'Resume' }}
-      </button>
-      <button type="button" (click)="clearSelection()">Clear</button>
-    </div>
+    <label>
+      <input type="checkbox" [checked]="layers.hillshade" (change)="setLayer('hillshade', $event)" />
+      Hillshade (Terrain)
+    </label>
 
-    <hr />
+    <div class="panel-section">Operations</div>
 
-    <div *ngIf="!selectedVehicle()" class="muted">
-      Click a truck marker to view details.
-    </div>
+    <label>
+      <input type="checkbox" [checked]="layers.pits3d" (change)="setLayer('pits3d', $event)" />
+      3D Pits
+    </label>
 
-    <div *ngIf="selectedVehicle() as v" class="details">
-      <div class="kv">
-        <div class="k">Vehicle</div>
-        <div class="v mono">{{ v.id }}</div>
-      </div>
+    <label>
+      <input type="checkbox" [checked]="layers.haul" (change)="setLayer('haul', $event)" />
+      Haul Route
+    </label>
 
-      <div class="kv">
-        <div class="k">Status</div>
-        <div class="v"><span class="pill">{{ v.status }}</span></div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Speed</div>
-        <div class="v mono">{{ v.speedKph.toFixed(1) }} kph</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Payload</div>
-        <div class="v mono">{{ v.payloadTons.toFixed(1) }} t</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Fuel</div>
-        <div class="v mono">{{ v.fuelPct.toFixed(1) }}%</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Health</div>
-        <div class="v mono">{{ v.healthPct.toFixed(1) }}%</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Position</div>
-        <div class="v mono">
-          {{ v.position.lat.toFixed(5) }}, {{ v.position.lng.toFixed(5) }}
-        </div>
-      </div>
-    </div>
-  </aside>
+    <label>
+      <input type="checkbox" [checked]="layers.trucks" (change)="setLayer('trucks', $event)" />
+      Trucks (10)
+    </label>
+  </div>
 </div>

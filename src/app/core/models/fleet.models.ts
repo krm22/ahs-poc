@@ -1,47 +1,37 @@
-export type VehicleId = string;
+// src/app/core/models/fleet.models.ts
+
+export type LatLng = { lat: number; lng: number };
 
 export type VehicleStatus =
   | 'IDLE'
   | 'DISPATCHED'
-  | 'LOADING'
   | 'HAULING'
-  | 'DUMPING'
   | 'RETURNING'
+  | 'LOADING'
+  | 'DUMPING'
+  | 'REFUEL'
+  | 'MAINT'
   | 'PAUSED'
   | 'FAULT';
 
-export interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-export interface Vehicle {
-  id: VehicleId;
-  name: string;            // e.g. "TRK-01"
-  status: VehicleStatus;
-  position: LatLng;
-  headingDeg: number;      // 0..359
-  speedKph: number;        // 0..~60
-  payloadTons: number;     // 0..~320 (demo)
-  fuelPct: number;         // 0..100
-  healthPct: number;       // 0..100
-  lastUpdateMs: number;    // epoch ms
-}
-
-export interface TelemetryPoint {
-  vehicleId: VehicleId;
-  tsMs: number;
-  position: LatLng;
+export interface FleetTelemetry {
   speedKph: number;
-  headingDeg: number;
-  status: VehicleStatus;
+  payloadTons: number;
+  fuelPct: number;      // 0..100
+  healthPct: number;    // 0..100
+  engineTempC: number;  // typical ~70..120
 }
 
-export interface FleetKpis {
-  total: number;
-  active: number;     // not IDLE
-  faults: number;     // FAULT
-  paused: number;     // PAUSED
-  avgSpeedKph: number;
-  totalPayloadTons: number;
+export interface FleetVehicle {
+  id: string;
+  name: string;
+
+  status: VehicleStatus;
+  state: VehicleStatus;
+
+  telemetry: FleetTelemetry;
+
+  lastUpdateIso: string;
+
+  prevStatus?: VehicleStatus;
 }

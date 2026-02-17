@@ -1,21 +1,29 @@
-import { Component, OnInit, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FleetStateService } from '../../core/services/fleet-state.service';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+  ],
   templateUrl: './shell.component.html',
-  styleUrl: './shell.component.css',
+  styleUrls: ['./shell.component.css'],
 })
-export class ShellComponent implements OnInit {
-  private readonly fleet = inject(FleetStateService);
-
-  readonly version = 'Phase 0 – Core UI Scaffold';
-
-  ngOnInit(): void {
-    this.fleet.startSimulation();
-  }
+export class ShellComponent {
+  /**
+   * ✅ Static navigation definition.
+   * No signals.
+   * No async changes.
+   * Prevents NG0100 entirely.
+   */
+  readonly navItems = [
+    { label: 'Dashboard', path: '/dashboard' },
+    { label: 'Fleet', path: '/fleet' },
+    { label: 'Map', path: '/map' },
+  ];
 }

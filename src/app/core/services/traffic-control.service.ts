@@ -4,39 +4,73 @@ export type SpeedZone = { name: string; polygon: [number, number][], speedKph: n
 
 @Injectable({ providedIn: 'root' })
 export class TrafficControlService {
-  // Simple first-pass zones. Refine geometry later as you “draw” the site.
+  // Whaleback (Newman) demo speed zones aligned with ops-sites + zones.geo.ts
   private readonly zones: SpeedZone[] = [
     {
-      name: 'Shovel Area',
+      name: 'Pit 1 Face / Loading Area',
       speedKph: 12,
       polygon: [
-        [118.7525, -22.0075],
-        [118.7575, -22.0075],
-        [118.7575, -22.0125],
-        [118.7525, -22.0125],
-        [118.7525, -22.0075],
+        [119.6708, -23.3652],
+        [119.6744, -23.3652],
+        [119.6744, -23.3628],
+        [119.6708, -23.3628],
+        [119.6708, -23.3652],
       ],
     },
     {
-      name: 'ROM Pad',
+      name: 'Pit 2 Face / Loading Area',
+      speedKph: 12,
+      polygon: [
+        [119.6932, -23.3692],
+        [119.6964, -23.3692],
+        [119.6964, -23.3672],
+        [119.6932, -23.3672],
+        [119.6932, -23.3692],
+      ],
+    },
+    {
+      name: 'ROM Pad / Crusher Precinct',
       speedKph: 15,
       polygon: [
-        [118.7675, -22.0225],
-        [118.7755, -22.0225],
-        [118.7755, -22.0305],
-        [118.7675, -22.0305],
-        [118.7675, -22.0225],
+        [119.6966, -23.3662],
+        [119.7016, -23.3662],
+        [119.7016, -23.3628],
+        [119.6966, -23.3628],
+        [119.6966, -23.3662],
       ],
     },
     {
       name: 'Workshop Precinct',
       speedKph: 10,
       polygon: [
-        [118.7405, -22.0095],
-        [118.7480, -22.0095],
-        [118.7480, -22.0155],
-        [118.7405, -22.0155],
-        [118.7405, -22.0095],
+        [119.6756, -23.3747],
+        [119.6776, -23.3747],
+        [119.6776, -23.3732],
+        [119.6756, -23.3732],
+        [119.6756, -23.3747],
+      ],
+    },
+    {
+      name: 'Fuel Bay',
+      speedKph: 10,
+      polygon: [
+        [119.6876, -23.3586],
+        [119.6904, -23.3586],
+        [119.6904, -23.3567],
+        [119.6876, -23.3567],
+        [119.6876, -23.3586],
+      ],
+    },
+    {
+      // a high-conflict zone where spurs meet the loop (good for yield/priority rules later)
+      name: 'Loop Merge / Intersection Zone',
+      speedKph: 20,
+      polygon: [
+        [119.6838, -23.3732],
+        [119.6862, -23.3732],
+        [119.6862, -23.3714],
+        [119.6838, -23.3714],
+        [119.6838, -23.3732],
       ],
     },
   ];

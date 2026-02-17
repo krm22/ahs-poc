@@ -1,56 +1,82 @@
+// Whaleback (Newman) operational zones (approximate, demo-ready)
+// Coordinate order: [lng, lat]
+
 export const DUMP_ZONES = {
   type: 'FeatureCollection',
   features: [
     {
       type: 'Feature',
-      properties: { type: 'ROM' },
+      properties: { type: 'ROM', name: 'ROM Pad / Crusher' },
       geometry: {
         type: 'Polygon',
-        coordinates: [[
-          [118.7680, -22.0230],
-          [118.7750, -22.0230],
-          [118.7750, -22.0300],
-          [118.7680, -22.0300],
-          [118.7680, -22.0230]
-        ]]
-      }
+        coordinates: [
+          [
+            [119.6966, -23.3662],
+            [119.7016, -23.3662],
+            [119.7016, -23.3628],
+            [119.6966, -23.3628],
+            [119.6966, -23.3662],
+          ],
+        ],
+      },
     },
     {
       type: 'Feature',
-      properties: { type: 'FUEL' },
+      properties: { type: 'FUEL', name: 'Fuel Bay' },
       geometry: {
         type: 'Polygon',
-        coordinates: [[
-          [118.7445, -22.0045],
-          [118.7485, -22.0045],
-          [118.7485, -22.0085],
-          [118.7445, -22.0085],
-          [118.7445, -22.0045]
-        ]]
-      }
+        coordinates: [
+          [
+            [119.6876, -23.3586],
+            [119.6904, -23.3586],
+            [119.6904, -23.3567],
+            [119.6876, -23.3567],
+            [119.6876, -23.3586],
+          ],
+        ],
+      },
     },
     {
       type: 'Feature',
-      properties: { type: 'MAINT' },
+      properties: { type: 'MAINT', name: 'Workshop Precinct' },
       geometry: {
         type: 'Polygon',
-        coordinates: [[
-          [118.7415, -22.0100],
-          [118.7468, -22.0100],
-          [118.7468, -22.0148],
-          [118.7415, -22.0148],
-          [118.7415, -22.0100]
-        ]]
-      }
+        coordinates: [
+          [
+            [119.6756, -23.3747],
+            [119.6776, -23.3747],
+            [119.6776, -23.3732],
+            [119.6756, -23.3732],
+            [119.6756, -23.3747],
+          ],
+        ],
+      },
     },
     {
-      // Shovel / dig face (as a point of interest)
       type: 'Feature',
-      properties: { type: 'SHOVEL', name: 'Shovel 01' },
+      properties: { type: 'WASTE', name: 'Waste Dump (NW)' },
       geometry: {
-        type: 'Point',
-        coordinates: [118.7550, -22.0100]
-      }
-    }
-  ]
-};
+        type: 'Polygon',
+        coordinates: [
+          [
+            [119.6538, -23.3595],
+            [119.6625, -23.3595],
+            [119.6625, -23.3532],
+            [119.6538, -23.3532],
+            [119.6538, -23.3595],
+          ],
+        ],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { type: 'SHOVEL', name: 'Pit 1 Face (POI)' },
+      geometry: { type: 'Point', coordinates: [119.6726, -23.3640] },
+    },
+    {
+      type: 'Feature',
+      properties: { type: 'SHOVEL', name: 'Pit 2 Face (POI)' },
+      geometry: { type: 'Point', coordinates: [119.6948, -23.3682] },
+    },
+  ],
+} as const;
